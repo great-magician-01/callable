@@ -1,6 +1,6 @@
 module github.com/great-magician-01/callable
 
-go 1.26.4
+go 1.21
 
 require github.com/invopop/jsonschema v0.13.0
 

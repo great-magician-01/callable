@@ -100,9 +100,9 @@ func TestAnthropicStreamCancelReturnsPartial(t *testing.T) {
 // verifies no further upstream request is made, and the partial result still
 // forms a complete, replayable trajectory.
 func TestAgentCancelStopsBeforeNextTurn(t *testing.T) {
-	var requests atomic.Int32
+	var requests int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
+		atomic.AddInt32(&requests, 1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(chatSSE(
 			chatToolCallChunk(0, "call_1", "get_weather", `{"city":"Oslo"}`, true),
@@ -129,7 +129,7 @@ func TestAgentCancelStopsBeforeNextTurn(t *testing.T) {
 	if result == nil {
 		t.Fatal("partial result is nil")
 	}
-	if got := requests.Load(); got != 1 {
+	if got := atomic.LoadInt32(&requests); got != 1 {
 		t.Errorf("upstream requests = %d, want 1 (no new turn after cancel)", got)
 	}
 	if result.Turns != 1 {
@@ -163,9 +163,9 @@ func TestAgentCancelSkipsRemainingTools(t *testing.T) {
 		cancel()
 		return "ran", nil
 	})
-	var secondRan atomic.Bool
+	var secondRan int32
 	second := NewTool("second", "Second", func(ctx context.Context, args struct{}) (any, error) {
-		secondRan.Store(true)
+		atomic.StoreInt32(&secondRan, 1)
 		return "should not run", nil
 	})
 	client := NewClient(NewOpenAIProvider("k", WithBaseURL(srv.URL)), WithModel("m"))
@@ -176,7 +176,7 @@ func TestAgentCancelSkipsRemainingTools(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
-	if secondRan.Load() {
+	if atomic.LoadInt32(&secondRan) != 0 {
 		t.Error("second tool executed despite cancellation")
 	}
 	if result == nil || len(result.Messages) != 3 {
@@ -194,9 +194,9 @@ func TestAgentCancelSkipsRemainingTools(t *testing.T) {
 // TestCreateCanceledContext verifies a pre-canceled context fails fast
 // without any upstream request.
 func TestCreateCanceledContext(t *testing.T) {
-	var requests atomic.Int32
+	var requests int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
+		atomic.AddInt32(&requests, 1)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"hi"}}]}`))
 	}))
@@ -209,7 +209,7 @@ func TestCreateCanceledContext(t *testing.T) {
 	if _, err := client.Create(ctx, NewRequest(User("hi"))); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
-	if got := requests.Load(); got != 0 {
+	if got := atomic.LoadInt32(&requests); got != 0 {
 		t.Errorf("upstream requests = %d, want 0", got)
 	}
 }

@@ -40,9 +40,9 @@ func TestClientApplyDefaults(t *testing.T) {
 }
 
 func TestClientRetryOn500(t *testing.T) {
-	var calls atomic.Int32
+	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if calls.Add(1) <= 2 {
+		if atomic.AddInt32(&calls, 1) <= 2 {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = io.WriteString(w, `{"error":{"message":"boom"}}`)
 			return
@@ -60,15 +60,15 @@ func TestClientRetryOn500(t *testing.T) {
 	if resp.Text != "ok" {
 		t.Errorf("text = %q", resp.Text)
 	}
-	if calls.Load() != 3 {
-		t.Errorf("calls = %d, want 3", calls.Load())
+	if atomic.LoadInt32(&calls) != 3 {
+		t.Errorf("calls = %d, want 3", atomic.LoadInt32(&calls))
 	}
 }
 
 func TestClientNoRetryOn400(t *testing.T) {
-	var calls atomic.Int32
+	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
+		atomic.AddInt32(&calls, 1)
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, `{"error":{"type":"invalid_request_error","message":"nope"}}`)
 	}))
@@ -83,15 +83,15 @@ func TestClientNoRetryOn400(t *testing.T) {
 	if apiErr.StatusCode != 400 || apiErr.Type != "invalid_request_error" {
 		t.Errorf("api error = %+v", apiErr)
 	}
-	if calls.Load() != 1 {
-		t.Errorf("calls = %d, want 1 (no retry on 4xx)", calls.Load())
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Errorf("calls = %d, want 1 (no retry on 4xx)", atomic.LoadInt32(&calls))
 	}
 }
 
 func TestClientContextCancelNoRetry(t *testing.T) {
-	var calls atomic.Int32
+	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
+		atomic.AddInt32(&calls, 1)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(srv.Close)
@@ -103,8 +103,8 @@ func TestClientContextCancelNoRetry(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected context error")
 	}
-	if calls.Load() > 2 {
-		t.Errorf("calls = %d, retries should stop when context expires", calls.Load())
+	if atomic.LoadInt32(&calls) > 2 {
+		t.Errorf("calls = %d, retries should stop when context expires", atomic.LoadInt32(&calls))
 	}
 }
 
