@@ -275,7 +275,8 @@ func WithHTTPClient(client *http.Client) ProviderOption { return core.WithHTTPCl
 func WithHeader(key, value string) ProviderOption { return core.WithHeader(key, value) }
 
 // WithRetries sets how many times transient failures (429, 5xx, network
-// errors) are retried with exponential backoff.
+// errors) are retried, waiting 3s, 10s, then 30s between attempts. Default 3;
+// pass 0 to disable.
 func WithRetries(n int) ProviderOption { return core.WithRetries(n) }
 
 // WithCompat overrides the auto-detected endpoint dialect.

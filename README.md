@@ -192,7 +192,7 @@ callable.NewOpenAIProvider(key, url, callable.WithCompat(callable.CompatNone))
 ## 错误处理
 
 - `*callable.APIError`：`Provider / StatusCode / Type / Message / Body`，`IsRetryable()` 判断可重试
-- 网络错误 / 429 / 5xx 自动重试（指数退避 + 抖动，默认 2 次，`WithRetries(n)` 配置）
+- 网络错误 / 429 / 5xx 自动重试（默认 3 次，依次等待 3s / 10s / 30s，`WithRetries(n)` 配置次数，`WithRetries(0)` 关闭）
 - 工具执行错误 → `IsError` 工具结果回传给模型（可自行重试换路），不中断 loop
 - `*callable.MaxTurnsError`：附带 `Partial *AgentResult`
 - 请求级逃生舱：`NewRequest(...).WithExtra("key", value)` 透传任意顶层字段

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
@@ -86,7 +85,7 @@ func defaultProviderConfig(baseURL string) providerConfig {
 		httpClient: &http.Client{},
 		// No global timeout: long streams must not be cut off. Use the
 		// context for cancellation.
-		maxRetries: 2,
+		maxRetries: 3,
 	}
 }
 
@@ -110,7 +109,8 @@ func WithHeader(key, value string) ProviderOption {
 }
 
 // WithRetries sets how many times transient failures (transport errors, 429,
-// 5xx) are retried with exponential backoff. Default 2.
+// 5xx) are retried. Retries wait 3s, 10s, then 30s between attempts (attempts
+// beyond the schedule reuse the last delay). Default 3; pass 0 to disable.
 func WithRetries(n int) ProviderOption {
 	return func(c *providerConfig) {
 		if n < 0 {
@@ -235,10 +235,23 @@ func (a *httpAPI) transportError(err error) *APIError {
 	return &APIError{Provider: a.name, Message: err.Error()}
 }
 
+// backoffDelays is the fixed wait schedule before each retry: 3s before the
+// first retry, then 10s, then 30s. Attempts beyond the schedule reuse the
+// last delay. It is a package-level variable so tests can swap in a fast
+// schedule.
+var backoffDelays = []time.Duration{3 * time.Second, 10 * time.Second, 30 * time.Second}
+
+// backoffDelay returns how long to wait before retry attempt (1-based).
+func backoffDelay(attempt int) time.Duration {
+	i := attempt - 1
+	if i >= len(backoffDelays) {
+		i = len(backoffDelays) - 1
+	}
+	return backoffDelays[i]
+}
+
 func sleepBackoff(ctx context.Context, attempt int) error {
-	d := 500*time.Millisecond*time.Duration(1<<uint(attempt-1)) +
-		time.Duration(rand.Int63n(int64(250*time.Millisecond)))
-	timer := time.NewTimer(d)
+	timer := time.NewTimer(backoffDelay(attempt))
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
