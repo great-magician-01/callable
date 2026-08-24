@@ -39,14 +39,18 @@ func (e Effort) anthropicBudget() int {
 //	Anthropic           -> thinking.budget_tokens (low≈2048 / medium≈8192 / high≈16384)
 //	OpenAI Responses    -> reasoning.effort ("low" / "medium" / "high")
 //	OpenAI Chat Compl.  -> reasoning_effort
-//	GLM compat          -> thinking: {type: "enabled"}
-//	Qwen compat         -> enable_thinking: true
+//	GLM compat          -> thinking: {type: "enabled"} + reasoning_effort (medium→high)
+//	Ark compat          -> thinking: {type: "enabled"} + reasoning_effort
+//	DeepSeek compat     -> thinking: {type: "enabled"} + reasoning_effort (on by default; medium maps to high)
+//	Qwen compat         -> enable_thinking: true (+ thinking_budget from BudgetTokens)
 //
-// BudgetTokens overrides the Effort mapping for Anthropic only.
+// BudgetTokens sets an explicit thinking budget for Anthropic (budget_tokens)
+// and Qwen (thinking_budget); other providers ignore it.
 type Thinking struct {
 	Effort Effort
-	// BudgetTokens is an explicit Anthropic thinking budget. When set (and
-	// Effort is unset) it implies enabled for all providers.
+	// BudgetTokens is an explicit thinking budget (Anthropic budget_tokens,
+	// Qwen thinking_budget). When set (and Effort is unset) it implies
+	// enabled for all providers.
 	BudgetTokens int
 }
 
@@ -65,6 +69,16 @@ func (t Thinking) effectiveEffort() Effort {
 		return EffortMedium
 	}
 	return EffortOff
+}
+
+// glmEffort maps a unified effort onto values every reasoning_effort-capable
+// GLM model accepts: GLM-5.3 rejects medium, and GLM-5.2 folds low/medium
+// into high server-side anyway, so medium is sent as high.
+func glmEffort(e Effort) Effort {
+	if e == EffortMedium {
+		return EffortHigh
+	}
+	return e
 }
 
 // anthropicBudgetTokens returns the Anthropic thinking budget, preferring an

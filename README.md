@@ -136,7 +136,7 @@ read_skill tool to load its full instructions, then follow them.
 
 ```go
 callable.WithThinking(callable.Thinking{Effort: callable.EffortHigh})     // low / medium / high
-callable.WithThinking(callable.Thinking{BudgetTokens: 16000})             // Anthropic 显式预算
+callable.WithThinking(callable.Thinking{BudgetTokens: 16000})             // Anthropic / Qwen 显式预算
 ```
 
 | Provider | 请求字段 | 说明 |
@@ -144,9 +144,10 @@ callable.WithThinking(callable.Thinking{BudgetTokens: 16000})             // Ant
 | Anthropic | `thinking.budget_tokens` | effort 映射 2048/8192/16384；自动保证 max_tokens > budget |
 | OpenAI Responses | `reasoning.effort` | 附带 `summary: "auto"` 流式输出思考摘要 |
 | OpenAI Chat Completions | `reasoning_effort` | |
-| GLM / 火山方舟 | `thinking: {type:"enabled"}` | 按 BaseURL 自动嗅探 |
-| Qwen (DashScope) | `enable_thinking: true` | 按 BaseURL 自动嗅探 |
-| DeepSeek | （无请求字段） | 解析输出的 `reasoning_content` |
+| GLM / 智谱（含 Z.AI） | `thinking:{type:"enabled"}` + `reasoning_effort` | 按 BaseURL 自动嗅探；medium→high（GLM-5.3 拒收 medium）；⚠️ GLM-5.3 强制思考，传 disabled 会 400 |
+| 火山方舟 | `thinking:{type:"enabled"}` + `reasoning_effort` | 按 BaseURL 自动嗅探；effort 原样透传 |
+| Qwen (DashScope) | `enable_thinking:true` + `thinking_budget` | 按 BaseURL 自动嗅探；`BudgetTokens` 映射为 thinking_budget |
+| DeepSeek | `thinking:{type:"enabled"}` + `reasoning_effort` | 按 BaseURL 自动嗅探；默认开思考（effort high），传 `Thinking{}` 显式关闭；medium 服务端映射为 high |
 
 思考原文完整保留在历史中并在下一轮回传（Anthropic 需要 signature，Responses 需要 reasoning item，国产端点需要 reasoning_content），保证工具循环中思考不丢。
 

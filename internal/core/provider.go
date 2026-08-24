@@ -38,9 +38,10 @@ type Compat uint
 
 const (
 	CompatNone     Compat = 0
-	CompatGLM      Compat = 1 << 0 // thinking: {type:"enabled"} — GLM/Zhipu, Volcano Ark
-	CompatQwen     Compat = 1 << 1 // enable_thinking: true — Alibaba DashScope
-	CompatDeepSeek Compat = 1 << 2 // reasoning_content output; no request field
+	CompatGLM      Compat = 1 << 0 // thinking:{type:"enabled"} + reasoning_effort (medium→high) — GLM/Zhipu, Z.AI
+	CompatQwen     Compat = 1 << 1 // enable_thinking:true + thinking_budget — Alibaba DashScope
+	CompatDeepSeek Compat = 1 << 2 // thinking:{type:"enabled"} + reasoning_effort; reasoning_content output — DeepSeek
+	CompatArk      Compat = 1 << 3 // thinking:{type:"enabled"} + reasoning_effort (direct) — Volcano Ark
 )
 
 // detectCompat guesses the endpoint dialect from a base URL.
@@ -53,8 +54,10 @@ func detectCompat(baseURL string) Compat {
 	switch {
 	case strings.Contains(host, "bigmodel.cn"),
 		strings.Contains(host, "zhipuai"),
-		strings.Contains(host, "volces.com"):
+		host == "z.ai" || strings.HasSuffix(host, ".z.ai"):
 		c |= CompatGLM
+	case strings.Contains(host, "volces.com"):
+		c |= CompatArk
 	case strings.Contains(host, "dashscope"):
 		c |= CompatQwen
 	case strings.Contains(host, "deepseek"):

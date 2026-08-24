@@ -112,7 +112,8 @@ func TestChatBuildPayloadThinking(t *testing.T) {
 		t.Errorf("temperature must be omitted when thinking is on")
 	}
 
-	// GLM: thinking object.
+	// GLM: thinking object plus mapped reasoning_effort (medium → high,
+	// GLM-5.3 rejects medium).
 	p = chatProviderWithBase("https://open.bigmodel.cn/api/paas/v4")
 	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortMedium}), false)
 	m = decodeMap(t, body)
@@ -120,24 +121,73 @@ func TestChatBuildPayloadThinking(t *testing.T) {
 	if asString(t, thinking["type"]) != "enabled" {
 		t.Errorf("glm thinking = %v", m["thinking"])
 	}
-	if _, present := m["reasoning_effort"]; present {
-		t.Errorf("reasoning_effort should not be sent to GLM")
+	if asString(t, m["reasoning_effort"]) != "high" {
+		t.Errorf("glm reasoning_effort = %v, want high (mapped from medium)", m["reasoning_effort"])
 	}
 
-	// Explicitly disabled on GLM.
+	// Explicitly disabled on GLM: no effort alongside the off switch.
 	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{}), false)
 	m = decodeMap(t, body)
 	thinking = asMap(t, m["thinking"])
 	if asString(t, thinking["type"]) != "disabled" {
 		t.Errorf("glm disabled thinking = %v", m["thinking"])
 	}
+	if _, present := m["reasoning_effort"]; present {
+		t.Errorf("reasoning_effort should not be sent when thinking is disabled")
+	}
 
-	// Qwen: enable_thinking.
+	// Ark: thinking object plus effort passed through unmapped.
+	p = chatProviderWithBase("https://ark.cn-beijing.volces.com/api/v3")
+	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortMedium}), false)
+	m = decodeMap(t, body)
+	thinking = asMap(t, m["thinking"])
+	if asString(t, thinking["type"]) != "enabled" {
+		t.Errorf("ark thinking = %v", m["thinking"])
+	}
+	if asString(t, m["reasoning_effort"]) != "medium" {
+		t.Errorf("ark reasoning_effort = %v, want medium", m["reasoning_effort"])
+	}
+
+	// Qwen: enable_thinking; BudgetTokens maps to thinking_budget.
 	p = chatProviderWithBase("https://dashscope.aliyuncs.com/compatible-mode/v1")
 	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortLow}), false)
 	m = decodeMap(t, body)
 	if m["enable_thinking"] != true {
 		t.Errorf("qwen enable_thinking = %v", m["enable_thinking"])
+	}
+	if _, present := m["thinking_budget"]; present {
+		t.Errorf("thinking_budget should be absent without BudgetTokens")
+	}
+	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{BudgetTokens: 8192}), false)
+	m = decodeMap(t, body)
+	if m["enable_thinking"] != true {
+		t.Errorf("qwen enable_thinking (budget) = %v", m["enable_thinking"])
+	}
+	if asFloat(t, m["thinking_budget"]) != 8192 {
+		t.Errorf("qwen thinking_budget = %v", m["thinking_budget"])
+	}
+
+	// DeepSeek: thinking switch plus reasoning_effort.
+	p = chatProviderWithBase("https://api.deepseek.com")
+	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortHigh}), false)
+	m = decodeMap(t, body)
+	thinking = asMap(t, m["thinking"])
+	if asString(t, thinking["type"]) != "enabled" {
+		t.Errorf("deepseek thinking = %v", m["thinking"])
+	}
+	if asString(t, m["reasoning_effort"]) != "high" {
+		t.Errorf("deepseek reasoning_effort = %v", m["reasoning_effort"])
+	}
+
+	// Explicitly disabled on DeepSeek (its default is thinking on).
+	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{}), false)
+	m = decodeMap(t, body)
+	thinking = asMap(t, m["thinking"])
+	if asString(t, thinking["type"]) != "disabled" {
+		t.Errorf("deepseek disabled thinking = %v", m["thinking"])
+	}
+	if _, present := m["reasoning_effort"]; present {
+		t.Errorf("reasoning_effort should not be sent when thinking is disabled")
 	}
 
 	// No thinking config: nothing sent.

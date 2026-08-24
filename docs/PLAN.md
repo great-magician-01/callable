@@ -191,9 +191,10 @@ type Thinking struct {
 | Anthropic | `thinking:{type:"enabled", budget_tokens:N}` | low≈2048 / medium≈8192 / high≈16384；自动保证 max_tokens > budget |
 | OpenAI Responses | `reasoning:{effort:"low|medium|high", summary:"auto"}` | 直接映射 |
 | OpenAI Chat Completions | `reasoning_effort` | 直接映射 |
-| GLM 兼容端点 | `thinking:{type:"enabled"|"disabled"}` | enabled 恒开，EffortOff → disabled |
-| Qwen 兼容端点 | `enable_thinking:true|false` | 同上 |
-| DeepSeek | reasoner 模型恒思考，无开关 | 仅解析输出的 `reasoning_content` |
+| GLM 兼容端点（含 Z.AI） | `thinking:{type:"enabled"|"disabled"}` + `reasoning_effort` | medium→high（5.3 拒收 medium）；5.3 强制思考（disabled 会 400） |
+| 火山方舟 | `thinking:{type:"enabled"|"disabled"}` + `reasoning_effort` | effort 原样透传 |
+| Qwen 兼容端点 | `enable_thinking:true|false` + `thinking_budget` | BudgetTokens → thinking_budget |
+| DeepSeek | `thinking:{type:"enabled"|"disabled"}` + `reasoning_effort` | 默认开思考（effort high），EffortOff → disabled；medium 服务端映射为 high |
 
 - **国产端点自动嗅探**：根据 BaseURL（bigmodel.cn / deepseek.com / dashscope 等）自动启用对应 compat；`WithCompat(...)` 手动覆盖（避免把非标字段发给官方 OpenAI 报错）。
 - **响应侧解析永远宽松**：任何端点返回 `reasoning_content` / `reasoning` 都解析为 ThinkingPart，不做开关。

@@ -236,7 +236,8 @@ func TestDetectCompat(t *testing.T) {
 	cases := map[string]Compat{
 		"https://api.openai.com/v1":                         CompatNone,
 		"https://open.bigmodel.cn/api/paas/v4":              CompatGLM,
-		"https://ark.cn-beijing.volces.com/api/v3":          CompatGLM,
+		"https://api.z.ai/api/paas/v4":                      CompatGLM,
+		"https://ark.cn-beijing.volces.com/api/v3":          CompatArk,
 		"https://dashscope.aliyuncs.com/compatible-mode/v1": CompatQwen,
 		"https://api.deepseek.com":                          CompatDeepSeek,
 	}

@@ -46,8 +46,9 @@ type oaiChatPayload struct {
 	MaxCompletionTokens *int               `json:"max_completion_tokens,omitempty"`
 	Temperature         *float64           `json:"temperature,omitempty"`
 	ReasoningEffort     string             `json:"reasoning_effort,omitempty"`
-	Thinking            *oaiCompatThinking `json:"thinking,omitempty"`        // GLM / Ark
+	Thinking            *oaiCompatThinking `json:"thinking,omitempty"`        // GLM / Ark / DeepSeek
 	EnableThinking      *bool              `json:"enable_thinking,omitempty"` // Qwen
+	ThinkingBudget      *int               `json:"thinking_budget,omitempty"` // Qwen
 	Stream              bool               `json:"stream,omitempty"`
 	StreamOptions       *oaiStreamOptions  `json:"stream_options,omitempty"`
 }
@@ -142,13 +143,31 @@ func (p *OpenAIProvider) buildPayload(req *Request, stream bool) ([]byte, error)
 	thinkingOn := req.Thinking != nil && req.Thinking.Enabled()
 	switch {
 	case thinkingOn && p.compat&CompatGLM != 0:
+		// GLM-5.2+: reasoning_effort alongside the switch. medium is mapped
+		// to high: GLM-5.3 rejects medium outright, and 5.2 folds low/medium
+		// into high server-side anyway.
 		payload.Thinking = &oaiCompatThinking{Type: "enabled"}
+		payload.ReasoningEffort = string(glmEffort(req.Thinking.effectiveEffort()))
+	case thinkingOn && p.compat&CompatArk != 0:
+		// Ark accepts low/medium/high natively; pass the effort through.
+		payload.Thinking = &oaiCompatThinking{Type: "enabled"}
+		payload.ReasoningEffort = string(req.Thinking.effectiveEffort())
+	case thinkingOn && p.compat&CompatDeepSeek != 0:
+		// DeepSeek V4: explicit switch plus effort. medium maps to high
+		// server-side; thinking is on by default when nothing is sent.
+		payload.Thinking = &oaiCompatThinking{Type: "enabled"}
+		payload.ReasoningEffort = string(req.Thinking.effectiveEffort())
 	case thinkingOn && p.compat&CompatQwen != 0:
 		payload.EnableThinking = ptr(true)
+		if req.Thinking.BudgetTokens > 0 {
+			payload.ThinkingBudget = ptr(req.Thinking.BudgetTokens)
+		}
 	case thinkingOn:
 		payload.ReasoningEffort = string(req.Thinking.effectiveEffort())
 	case req.Thinking != nil: // explicitly disabled
-		if p.compat&CompatGLM != 0 {
+		// DeepSeek defaults to thinking on, so disabling must be explicit.
+		// (GLM-5.3 rejects "disabled" outright; its 400 says to use low.)
+		if p.compat&(CompatGLM|CompatArk|CompatDeepSeek) != 0 {
 			payload.Thinking = &oaiCompatThinking{Type: "disabled"}
 		}
 		if p.compat&CompatQwen != 0 {
