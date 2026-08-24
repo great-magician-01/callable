@@ -76,21 +76,18 @@ type providerConfig struct {
 	compat     Compat
 }
 
+// defaultProviderConfig builds the base config; baseURL is always supplied
+// explicitly by the provider constructor (the library ships no default
+// endpoint). Trailing slashes are trimmed so base + endpoint concatenate
+// cleanly.
 func defaultProviderConfig(baseURL string) providerConfig {
 	return providerConfig{
-		baseURL:    baseURL,
+		baseURL:    strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{},
 		// No global timeout: long streams must not be cut off. Use the
 		// context for cancellation.
 		maxRetries: 2,
 	}
-}
-
-// WithBaseURL overrides the provider's API base URL, e.g. an OpenAI-compatible
-// endpoint. For OpenAI providers the URL should include the version prefix
-// (default "https://api.openai.com/v1").
-func WithBaseURL(u string) ProviderOption {
-	return func(c *providerConfig) { c.baseURL = strings.TrimRight(u, "/") }
 }
 
 // WithHTTPClient supplies a custom *http.Client.

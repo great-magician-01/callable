@@ -30,7 +30,7 @@ func weatherTool(executed *[]weatherArgs, result func(args weatherArgs) (any, er
 func chatAgentFixture(t *testing.T, turns []string, bodies *[]string, opts ...AgentOption) *Agent {
 	t.Helper()
 	server := newMockServer(t, turns, bodies)
-	client := NewClient(NewOpenAIProvider("k", WithBaseURL(server.URL)), WithModel("m"))
+	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 	return NewAgent(client, opts...)
 }
 
@@ -328,7 +328,7 @@ func TestAgentCreatePath(t *testing.T) {
 		"usage":{"prompt_tokens":5,"completion_tokens":7}}`
 	var bodies []string
 	server := newMockJSONServer(t, []string{toolCallJSON, finalJSON}, &bodies)
-	client := NewClient(NewOpenAIProvider("k", WithBaseURL(server.URL)), WithModel("m"))
+	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 
 	var executed []weatherArgs
 	agent := NewAgent(client, WithTools(weatherTool(&executed, nil)))
@@ -358,7 +358,7 @@ func TestAgentCreatePath(t *testing.T) {
 }
 
 func TestAgentRequiresInput(t *testing.T) {
-	agent := NewAgent(NewClient(NewOpenAIProvider("k")))
+	agent := NewAgent(NewClient(NewOpenAIProvider("k", "https://chat.example.com/v1")))
 	if _, err := agent.Run(context.Background()); err == nil {
 		t.Fatal("expected error for empty input")
 	}

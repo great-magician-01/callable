@@ -16,10 +16,11 @@ type AnthropicProvider struct {
 	api httpAPI
 }
 
-// NewAnthropicProvider creates an Anthropic Messages provider.
-// Default base URL: https://api.anthropic.com.
-func NewAnthropicProvider(apiKey string, opts ...ProviderOption) *AnthropicProvider {
-	cfg := defaultProviderConfig("https://api.anthropic.com")
+// NewAnthropicProvider creates an Anthropic Messages provider for the given
+// endpoint, e.g. "https://api.anthropic.com". A baseURL already ending in /v1
+// is tolerated.
+func NewAnthropicProvider(apiKey, baseURL string, opts ...ProviderOption) *AnthropicProvider {
+	cfg := defaultProviderConfig(baseURL)
 	for _, o := range opts {
 		o(&cfg)
 	}

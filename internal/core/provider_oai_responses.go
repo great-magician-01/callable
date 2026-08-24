@@ -19,10 +19,11 @@ type OpenAIResponsesProvider struct {
 	api httpAPI
 }
 
-// NewOpenAIResponsesProvider creates a Responses provider.
-// Default base URL: https://api.openai.com/v1.
-func NewOpenAIResponsesProvider(apiKey string, opts ...ProviderOption) *OpenAIResponsesProvider {
-	cfg := defaultProviderConfig("https://api.openai.com/v1")
+// NewOpenAIResponsesProvider creates a Responses provider for the given
+// endpoint. baseURL is the API root including any version prefix, e.g.
+// "https://api.openai.com/v1".
+func NewOpenAIResponsesProvider(apiKey, baseURL string, opts ...ProviderOption) *OpenAIResponsesProvider {
+	cfg := defaultProviderConfig(baseURL)
 	for _, o := range opts {
 		o(&cfg)
 	}

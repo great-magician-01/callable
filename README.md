@@ -38,7 +38,8 @@ go get github.com/great-magician-01/callable
 
 ```go
 client := callable.NewClient(
-    callable.NewAnthropicProvider(apiKey), // 或 NewOpenAIProvider / NewOpenAIResponsesProvider
+    // 第二个参数是端点地址，必须显式传入（本库不内置任何默认端点）
+    callable.NewAnthropicProvider(apiKey, "https://api.anthropic.com"), // 或 NewOpenAIProvider / NewOpenAIResponsesProvider
     callable.WithModel("claude-sonnet-5"),
 )
 
@@ -165,13 +166,13 @@ callable.User("这张图里是什么？", callable.Image("/tmp/a.png"))  // 图�
 ```go
 // GLM（自动启用 thinking:{type:"enabled"} 兼容字段）
 client := callable.NewClient(
-    callable.NewOpenAIProvider(key, callable.WithBaseURL("https://open.bigmodel.cn/api/paas/v4")),
+    callable.NewOpenAIProvider(key, "https://open.bigmodel.cn/api/paas/v4"),
     callable.WithModel("glm-4.7"),
 )
 
 // DeepSeek / Qwen / vLLM / Ollama … 同理
 // 手动覆盖嗅探结果：
-callable.NewOpenAIProvider(key, callable.WithBaseURL(url), callable.WithCompat(callable.CompatNone))
+callable.NewOpenAIProvider(key, url, callable.WithCompat(callable.CompatNone))
 ```
 
 ## 事件一览

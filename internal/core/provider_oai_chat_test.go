@@ -8,7 +8,7 @@ import (
 )
 
 func chatProviderWithBase(base string) *OpenAIProvider {
-	return NewOpenAIProvider("test-key", WithBaseURL(base))
+	return NewOpenAIProvider("test-key", base)
 }
 
 func TestChatBuildPayloadBasics(t *testing.T) {
@@ -384,7 +384,7 @@ func TestChatAgentFlow(t *testing.T) {
 
 	var requestBodies []string
 	server := newMockServer(t, []string{toolCallTurn, finalTurn}, &requestBodies)
-	client := NewClient(NewOpenAIProvider("k", WithBaseURL(server.URL)), WithModel("m"))
+	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 
 	var gotArgs weatherArgs
 	weather := NewTool("get_weather", "", func(ctx context.Context, args weatherArgs) (any, error) {

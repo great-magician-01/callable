@@ -22,9 +22,9 @@ func main() {
 
 	var client *callable.Client
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
-		client = callable.NewClient(callable.NewAnthropicProvider(key), callable.WithModel("claude-sonnet-5"))
+		client = callable.NewClient(callable.NewAnthropicProvider(key, firstNonEmptyEnv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")), callable.WithModel("claude-sonnet-5"))
 	} else {
-		client = callable.NewClient(callable.NewOpenAIProvider(key), callable.WithModel("gpt-5"))
+		client = callable.NewClient(callable.NewOpenAIProvider(key, firstNonEmptyEnv("OPENAI_BASE_URL", "https://api.openai.com/v1")), callable.WithModel("gpt-5"))
 	}
 
 	agent := callable.NewAgent(client,

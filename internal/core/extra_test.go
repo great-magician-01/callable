@@ -13,7 +13,7 @@ func TestAntCreatePath(t *testing.T) {
 		{"type":"text","text":"done"}],"stop_reason":"end_turn",
 		"usage":{"input_tokens":5,"output_tokens":7}}`
 	server := newMockJSONServer(t, []string{jsonResp}, nil)
-	client := NewClient(NewAnthropicProvider("k", WithBaseURL(server.URL)), WithModel("claude-x"))
+	client := NewClient(NewAnthropicProvider("k", server.URL), WithModel("claude-x"))
 
 	resp, err := client.Create(context.Background(), NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortLow}))
 	if err != nil {
@@ -38,7 +38,7 @@ func TestResponsesCreatePath(t *testing.T) {
 		{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}
 	],"usage":{"input_tokens":5,"output_tokens":7,"output_tokens_details":{"reasoning_tokens":2}}}`
 	server := newMockJSONServer(t, []string{jsonResp}, nil)
-	client := NewClient(NewOpenAIResponsesProvider("k", WithBaseURL(server.URL)), WithModel("gpt-x"))
+	client := NewClient(NewOpenAIResponsesProvider("k", server.URL), WithModel("gpt-x"))
 
 	resp, err := client.Create(context.Background(), NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortLow}))
 	if err != nil {

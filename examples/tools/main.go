@@ -31,9 +31,9 @@ func main() {
 
 	var client *callable.Client
 	if os.Getenv("OPENAI_API_KEY") != "" {
-		client = callable.NewClient(callable.NewOpenAIProvider(key), callable.WithModel("gpt-5"))
+		client = callable.NewClient(callable.NewOpenAIProvider(key, firstNonEmptyEnv("OPENAI_BASE_URL", "https://api.openai.com/v1")), callable.WithModel("gpt-5"))
 	} else {
-		client = callable.NewClient(callable.NewAnthropicProvider(key), callable.WithModel("claude-sonnet-5"))
+		client = callable.NewClient(callable.NewAnthropicProvider(key, firstNonEmptyEnv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")), callable.WithModel("claude-sonnet-5"))
 	}
 
 	weather := callable.NewTool("get_weather", "查询指定城市的实时天气",
@@ -73,4 +73,13 @@ func main() {
 
 	fmt.Fprintf(os.Stderr, "\n\n[turns: %d, tokens: in %d / out %d]\n",
 		result.Turns, result.Usage.InputTokens, result.Usage.OutputTokens)
+}
+
+func firstNonEmptyEnv(names ...string) string {
+	for _, n := range names {
+		if v := os.Getenv(n); v != "" {
+			return v
+		}
+	}
+	return ""
 }

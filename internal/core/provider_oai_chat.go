@@ -10,7 +10,7 @@ import (
 
 // OpenAIProvider talks the OpenAI Chat Completions format
 // (POST {baseURL}/chat/completions). Because most third-party LLM endpoints
-// are OpenAI-compatible, pointing WithBaseURL at them makes this provider
+// are OpenAI-compatible, pointing baseURL at them makes this provider
 // work for GLM, DeepSeek, Qwen, vLLM and friends; thinking-mode dialects are
 // auto-detected (see Compat).
 type OpenAIProvider struct {
@@ -18,10 +18,11 @@ type OpenAIProvider struct {
 	compat Compat
 }
 
-// NewOpenAIProvider creates a Chat Completions provider.
-// Default base URL: https://api.openai.com/v1.
-func NewOpenAIProvider(apiKey string, opts ...ProviderOption) *OpenAIProvider {
-	cfg := defaultProviderConfig("https://api.openai.com/v1")
+// NewOpenAIProvider creates a Chat Completions provider for the given endpoint.
+// baseURL is the API root including any version prefix, e.g.
+// "https://open.bigmodel.cn/api/paas/v4" or "https://api.openai.com/v1".
+func NewOpenAIProvider(apiKey, baseURL string, opts ...ProviderOption) *OpenAIProvider {
+	cfg := defaultProviderConfig(baseURL)
 	for _, o := range opts {
 		o(&cfg)
 	}

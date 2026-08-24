@@ -12,7 +12,7 @@ import (
 )
 
 func TestClientApplyDefaults(t *testing.T) {
-	client := NewClient(NewOpenAIProvider("k"),
+	client := NewClient(NewOpenAIProvider("k", "https://chat.example.com/v1"),
 		WithModel("default-model"),
 		WithMaxTokens(100),
 		WithTemperature(0.3),
@@ -52,7 +52,7 @@ func TestClientRetryOn500(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := NewClient(NewOpenAIProvider("k", WithBaseURL(srv.URL), WithRetries(2)), WithModel("m"))
+	client := NewClient(NewOpenAIProvider("k", srv.URL, WithRetries(2)), WithModel("m"))
 	resp, err := client.Create(context.Background(), NewRequest(User("hi")))
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -74,7 +74,7 @@ func TestClientNoRetryOn400(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := NewClient(NewOpenAIProvider("k", WithBaseURL(srv.URL), WithRetries(2)), WithModel("m"))
+	client := NewClient(NewOpenAIProvider("k", srv.URL, WithRetries(2)), WithModel("m"))
 	_, err := client.Create(context.Background(), NewRequest(User("hi")))
 	apiErr, ok := err.(*APIError)
 	if !ok {
@@ -98,7 +98,7 @@ func TestClientContextCancelNoRetry(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	client := NewClient(NewOpenAIProvider("k", WithBaseURL(srv.URL), WithRetries(5)), WithModel("m"))
+	client := NewClient(NewOpenAIProvider("k", srv.URL, WithRetries(5)), WithModel("m"))
 	_, err := client.Create(ctx, NewRequest(User("hi")))
 	if err == nil {
 		t.Fatal("expected context error")

@@ -34,20 +34,31 @@ func main() {
 	}
 }
 
-// newClient picks a provider based on which API key is present.
+// newClient picks a provider based on which API key is present. The endpoint
+// is always passed explicitly; point OPENAI_BASE_URL / ANTHROPIC_BASE_URL at
+// any compatible endpoint to override it.
 func newClient() *callable.Client {
 	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
 		return callable.NewClient(
-			callable.NewAnthropicProvider(key),
+			callable.NewAnthropicProvider(key, firstNonEmptyEnv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")),
 			callable.WithModel("claude-sonnet-5"),
 			callable.WithMaxTokens(2048),
 		)
 	}
 	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
 		return callable.NewClient(
-			callable.NewOpenAIProvider(key), // chat completions; NewOpenAIResponsesProvider for /v1/responses
+			callable.NewOpenAIProvider(key, firstNonEmptyEnv("OPENAI_BASE_URL", "https://api.openai.com/v1")), // chat completions; NewOpenAIResponsesProvider for /v1/responses
 			callable.WithModel("gpt-5"),
 		)
 	}
 	return nil
+}
+
+func firstNonEmptyEnv(names ...string) string {
+	for _, n := range names {
+		if v := os.Getenv(n); v != "" {
+			return v
+		}
+	}
+	return ""
 }

@@ -10,7 +10,7 @@ import (
 )
 
 func antProvider() *AnthropicProvider {
-	return NewAnthropicProvider("test-key")
+	return NewAnthropicProvider("test-key", "https://anthropic.example.com")
 }
 
 func TestAntBuildPayloadBasics(t *testing.T) {
@@ -317,7 +317,7 @@ func TestAntAgentFlow(t *testing.T) {
 
 	var bodies []string
 	server := newMockServer(t, []string{toolTurn, finalTurn}, &bodies)
-	client := NewClient(NewAnthropicProvider("k", WithBaseURL(server.URL)), WithModel("claude-x"))
+	client := NewClient(NewAnthropicProvider("k", server.URL), WithModel("claude-x"))
 
 	var executed []weatherArgs
 	agent := NewAgent(client, WithTools(weatherTool(&executed, nil)))

@@ -16,7 +16,7 @@
 // A minimal example:
 //
 //	client := callable.NewClient(
-//		callable.NewAnthropicProvider(apiKey),
+//		callable.NewAnthropicProvider(apiKey, "https://api.anthropic.com"),
 //		callable.WithModel("claude-sonnet-5"),
 //	)
 //	agent := callable.NewAgent(client,
@@ -248,24 +248,25 @@ const (
 	CompatDeepSeek = core.CompatDeepSeek
 )
 
-// NewOpenAIProvider creates an OpenAI Chat Completions provider; it also
-// covers OpenAI-compatible endpoints (GLM, DeepSeek, Qwen, ...) via WithBaseURL.
-func NewOpenAIProvider(apiKey string, opts ...ProviderOption) *OpenAIProvider {
-	return core.NewOpenAIProvider(apiKey, opts...)
+// NewOpenAIProvider creates an OpenAI Chat Completions provider for the given
+// endpoint. baseURL is the API root including any version prefix; any
+// OpenAI-compatible endpoint (GLM, DeepSeek, Qwen, ...) works.
+func NewOpenAIProvider(apiKey, baseURL string, opts ...ProviderOption) *OpenAIProvider {
+	return core.NewOpenAIProvider(apiKey, baseURL, opts...)
 }
 
-// NewOpenAIResponsesProvider creates an OpenAI Responses provider.
-func NewOpenAIResponsesProvider(apiKey string, opts ...ProviderOption) *OpenAIResponsesProvider {
-	return core.NewOpenAIResponsesProvider(apiKey, opts...)
+// NewOpenAIResponsesProvider creates an OpenAI Responses provider for the
+// given endpoint. baseURL is the API root including any version prefix.
+func NewOpenAIResponsesProvider(apiKey, baseURL string, opts ...ProviderOption) *OpenAIResponsesProvider {
+	return core.NewOpenAIResponsesProvider(apiKey, baseURL, opts...)
 }
 
-// NewAnthropicProvider creates an Anthropic Messages provider.
-func NewAnthropicProvider(apiKey string, opts ...ProviderOption) *AnthropicProvider {
-	return core.NewAnthropicProvider(apiKey, opts...)
+// NewAnthropicProvider creates an Anthropic Messages provider for the given
+// endpoint, e.g. "https://api.anthropic.com". A baseURL already ending in /v1
+// is tolerated.
+func NewAnthropicProvider(apiKey, baseURL string, opts ...ProviderOption) *AnthropicProvider {
+	return core.NewAnthropicProvider(apiKey, baseURL, opts...)
 }
-
-// WithBaseURL overrides the provider's API base URL.
-func WithBaseURL(u string) ProviderOption { return core.WithBaseURL(u) }
 
 // WithHTTPClient supplies a custom *http.Client.
 func WithHTTPClient(client *http.Client) ProviderOption { return core.WithHTTPClient(client) }

@@ -9,7 +9,7 @@ import (
 )
 
 func responsesProvider() *OpenAIResponsesProvider {
-	return NewOpenAIResponsesProvider("test-key")
+	return NewOpenAIResponsesProvider("test-key", "https://responses.example.com/v1")
 }
 
 // itemsToMaps round-trips input items through JSON so typed structs and raw
@@ -254,7 +254,7 @@ func TestResponsesStream(t *testing.T) {
 
 	var bodies []string
 	server := newMockServer(t, []string{stream}, &bodies)
-	client := NewClient(NewOpenAIResponsesProvider("k", WithBaseURL(server.URL)), WithModel("gpt-x"))
+	client := NewClient(NewOpenAIResponsesProvider("k", server.URL), WithModel("gpt-x"))
 
 	var events []Event
 	resp, err := client.Stream(context.Background(), NewRequest(User("hi")), func(ev Event) {
@@ -318,7 +318,7 @@ func TestResponsesAgentFlow(t *testing.T) {
 
 	var bodies []string
 	server := newMockServer(t, []string{turn1, turn2}, &bodies)
-	client := NewClient(NewOpenAIResponsesProvider("k", WithBaseURL(server.URL)), WithModel("gpt-x"))
+	client := NewClient(NewOpenAIResponsesProvider("k", server.URL), WithModel("gpt-x"))
 
 	var executed []weatherArgs
 	agent := NewAgent(client, WithTools(weatherTool(&executed, nil)))

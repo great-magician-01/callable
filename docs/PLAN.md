@@ -71,12 +71,12 @@ callable/
 ```go
 // ── 1. 创建 Client：三种 API 格式任选，切换只改这一行 ──────────────
 client := callable.NewClient(
-    callable.NewAnthropicProvider(apiKey),            // 或
-    // callable.NewOpenAIProvider(apiKey),            // Chat Completions
-    // callable.NewOpenAIResponsesProvider(apiKey),   // Responses
+    callable.NewAnthropicProvider(apiKey, "https://api.anthropic.com"),  // 或
+    // callable.NewOpenAIProvider(apiKey, "https://api.openai.com/v1"),      // Chat Completions
+    // callable.NewOpenAIResponsesProvider(apiKey, "https://api.openai.com/v1"), // Responses
     callable.WithModel("claude-sonnet-5"),
 )
-// provider 构造选项：WithBaseURL（兼容任意 OpenAI 兼容端点）、WithHTTPClient、WithHeader
+// 端点地址是构造函数的必填参数（兼容任意 OpenAI 兼容端点）；其余构造选项：WithHTTPClient、WithHeader
 
 // ── 2. 定义工具：struct 即参数 schema，handler 即执行体 ────────────
 type WeatherArgs struct {

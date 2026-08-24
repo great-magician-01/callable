@@ -38,7 +38,7 @@ func TestChatStreamCancelReturnsPartial(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	client := NewClient(NewOpenAIProvider("k", WithBaseURL(srv.URL)), WithModel("m"))
+	client := NewClient(NewOpenAIProvider("k", srv.URL), WithModel("m"))
 
 	resp, err := client.Stream(ctx, NewRequest(User("hi")), func(ev Event) {
 		if _, ok := ev.(TextDeltaEvent); ok {
@@ -75,7 +75,7 @@ func TestAnthropicStreamCancelReturnsPartial(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	client := NewClient(NewAnthropicProvider("k", WithBaseURL(srv.URL)), WithModel("claude-x"))
+	client := NewClient(NewAnthropicProvider("k", srv.URL), WithModel("claude-x"))
 
 	resp, err := client.Stream(ctx, NewRequest(User("hi")), func(ev Event) {
 		if _, ok := ev.(TextDeltaEvent); ok {
@@ -118,7 +118,7 @@ func TestAgentCancelStopsBeforeNextTurn(t *testing.T) {
 		cancel() // cancel the run from inside the tool
 		return "sunny", nil
 	})
-	client := NewClient(NewOpenAIProvider("k", WithBaseURL(srv.URL)), WithModel("m"))
+	client := NewClient(NewOpenAIProvider("k", srv.URL), WithModel("m"))
 	agent := NewAgent(client, WithTools(tool))
 
 	result, err := agent.RunStream(ctx, noopEvents, User("weather?"))
@@ -168,7 +168,7 @@ func TestAgentCancelSkipsRemainingTools(t *testing.T) {
 		atomic.StoreInt32(&secondRan, 1)
 		return "should not run", nil
 	})
-	client := NewClient(NewOpenAIProvider("k", WithBaseURL(srv.URL)), WithModel("m"))
+	client := NewClient(NewOpenAIProvider("k", srv.URL), WithModel("m"))
 	agent := NewAgent(client, WithTools(first, second))
 
 	result, err := agent.RunStream(ctx, noopEvents, User("go"))
@@ -204,7 +204,7 @@ func TestCreateCanceledContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	client := NewClient(NewOpenAIProvider("k", WithBaseURL(srv.URL)), WithModel("m"))
+	client := NewClient(NewOpenAIProvider("k", srv.URL), WithModel("m"))
 
 	if _, err := client.Create(ctx, NewRequest(User("hi"))); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
@@ -229,7 +229,7 @@ func TestSessionCancelKeepsHistory(t *testing.T) {
 		cancel()
 		return "sunny", nil
 	})
-	client := NewClient(NewOpenAIProvider("k", WithBaseURL(srv.URL)), WithModel("m"))
+	client := NewClient(NewOpenAIProvider("k", srv.URL), WithModel("m"))
 	sess := NewAgent(client, WithTools(tool)).Session()
 
 	if _, err := sess.AskStream(ctx, noopEvents, User("weather?")); !errors.Is(err, context.Canceled) {
