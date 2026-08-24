@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/great-magician-01/callable/compare/v0.2.0...v0.3.0) (2026-08-24)
+
+
+### Features
+
+* 添加 DeepSeek 实时 API 测试工具 ([988950d](https://github.com/great-magician-01/callable/commit/988950d39d5b85fbcf5f1cde8a8d5156bf834a0b))
+
+
+### Bug Fixes
+
+* 修复代码格式，统一缩进和注释风格 ([c2af9d9](https://github.com/great-magician-01/callable/commit/c2af9d95962a8ac706f00ad025f8641198adb600))
+
 ## [0.2.0](https://github.com/great-magician-01/callable/compare/v0.1.0...v0.2.0) (2026-08-24)
 
 
