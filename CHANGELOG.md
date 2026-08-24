@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/great-magician-01/callable/compare/v0.3.0...v0.4.0) (2026-08-24)
+
+
+### Features
+
+* 更新兼容性支持，添加对 Z.AI 和 Volcano Ark 的支持，调整 DeepSeek 和 Qwen 的请求字段 ([5e40441](https://github.com/great-magician-01/callable/commit/5e4044104b7082360d3796a770c664fa68a7c494))
+
 ## [0.3.0](https://github.com/great-magician-01/callable/compare/v0.2.0...v0.3.0) (2026-08-24)
 
 
