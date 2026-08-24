@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/great-magician-01/callable/compare/v0.1.0...v0.2.0) (2026-08-24)
+
+
+### Features
+
+* 修改重试机制 ([6933d9a](https://github.com/great-magician-01/callable/commit/6933d9a644b4ff9a991e7de62ef32c88b4696713))
+
 ## [0.1.0](https://github.com/great-magician-01/callable/compare/v0.0.3...v0.1.0) (2026-08-24)
 
 
