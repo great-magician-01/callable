@@ -32,13 +32,13 @@ func main() {
 	}
 
 	scenarios := map[string]func() error{
-		"chat":           testChat,           // OpenAI Chat Completions: Create + Stream
-		"chat-think":     testChatThinking,   // Chat Completions + 思考(reasoning_content)
-		"chat-agent":     testChatAgent,      // Chat Completions + 工具调用 agent loop
-		"chat-session":   testChatSession,    // Chat Completions 多轮会话
-		"responses":      testResponses,      // OpenAI Responses: Create + Stream
+		"chat":            testChat,           // OpenAI Chat Completions: Create + Stream
+		"chat-think":      testChatThinking,   // Chat Completions + 思考(reasoning_content)
+		"chat-agent":      testChatAgent,      // Chat Completions + 工具调用 agent loop
+		"chat-session":    testChatSession,    // Chat Completions 多轮会话
+		"responses":       testResponses,      // OpenAI Responses: Create + Stream
 		"responses-think": testResponsesThink, // Responses + 思考
-		"anthropic":      testAnthropic,      // Anthropic Messages: Create + Stream
+		"anthropic":       testAnthropic,      // Anthropic Messages: Create + Stream
 		"anthropic-think": testAnthropicThink, // Anthropic + 思考
 	}
 
