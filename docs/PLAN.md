@@ -299,7 +299,7 @@ Run(input):
 ## 12. 错误处理与重试
 
 - `APIError{Provider, StatusCode, Type, Message, Body}`：4xx/5xx 结构化错误（含各家 error body 原文）。
-- 网络错误 / 429 / 5xx 自动重试：指数退避 + 抖动，默认 2 次，`WithRetries(n)` 配置；`context.Canceled` 不重试。
+- 网络错误 / 429 / 5xx 自动重试：固定等待 3s / 10s / 30s，默认 3 次，`WithRetries(n)` 配置次数、`WithRetries(0)` 关闭；`context.Canceled` 不重试。
 - `MaxTurnsError{Turns, Partial *AgentResult}`：循环达上限，附带部分结果。
 - 工具错误 → 回传模型（见第 7 节），不算失败。
 

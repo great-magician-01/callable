@@ -39,7 +39,37 @@ func TestClientApplyDefaults(t *testing.T) {
 	}
 }
 
+// withFastBackoff swaps the retry backoff schedule for near-instant waits so
+// tests that expect retries to complete stay fast.
+func withFastBackoff(t *testing.T) {
+	t.Helper()
+	orig := backoffDelays
+	backoffDelays = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
+	t.Cleanup(func() { backoffDelays = orig })
+}
+
+func TestBackoffDelay(t *testing.T) {
+	// Default schedule: wait 3s, 10s, 30s before retries 1..3; attempts beyond
+	// the schedule reuse the last delay.
+	want := []time.Duration{3 * time.Second, 10 * time.Second, 30 * time.Second}
+	if len(backoffDelays) != len(want) {
+		t.Fatalf("backoffDelays = %v, want %v", backoffDelays, want)
+	}
+	for i, w := range want {
+		if backoffDelays[i] != w {
+			t.Errorf("backoffDelays[%d] = %v, want %v", i, backoffDelays[i], w)
+		}
+		if got := backoffDelay(i + 1); got != w {
+			t.Errorf("backoffDelay(%d) = %v, want %v", i+1, got, w)
+		}
+	}
+	if got := backoffDelay(len(want) + 5); got != want[len(want)-1] {
+		t.Errorf("backoffDelay beyond schedule = %v, want %v (last delay)", got, want[len(want)-1])
+	}
+}
+
 func TestClientRetryOn500(t *testing.T) {
+	withFastBackoff(t)
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if atomic.AddInt32(&calls, 1) <= 2 {
@@ -105,6 +135,47 @@ func TestClientContextCancelNoRetry(t *testing.T) {
 	}
 	if atomic.LoadInt32(&calls) > 2 {
 		t.Errorf("calls = %d, retries should stop when context expires", atomic.LoadInt32(&calls))
+	}
+}
+
+func TestClientDefaultRetries(t *testing.T) {
+	withFastBackoff(t)
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"error":{"message":"boom"}}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	// No WithRetries: the default is 3 retries (4 attempts total).
+	client := NewClient(NewOpenAIProvider("k", srv.URL), WithModel("m"))
+	_, err := client.Create(context.Background(), NewRequest(User("hi")))
+	if err == nil {
+		t.Fatal("expected error after exhausting retries")
+	}
+	if got := atomic.LoadInt32(&calls); got != 4 {
+		t.Errorf("calls = %d, want 4 (1 + 3 default retries)", got)
+	}
+}
+
+func TestClientRetriesDisabled(t *testing.T) {
+	withFastBackoff(t)
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"error":{"message":"boom"}}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := NewClient(NewOpenAIProvider("k", srv.URL, WithRetries(0)), WithModel("m"))
+	_, err := client.Create(context.Background(), NewRequest(User("hi")))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Errorf("calls = %d, want 1 (retries disabled)", got)
 	}
 }
 
