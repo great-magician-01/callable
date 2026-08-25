@@ -38,8 +38,8 @@ go get github.com/great-magician-01/callable
 
 ```go
 client := callable.NewClient(
-    // 第二个参数是端点地址，必须显式传入（本库不内置任何默认端点）
-    callable.NewAnthropicProvider(apiKey, "https://api.anthropic.com"), // 或 NewOpenAIProvider / NewOpenAIResponsesProvider
+    // 第二个参数是端点地址：内置了常见厂商常量（见下），其它端点传实际 URL 即可
+    callable.NewAnthropicProvider(apiKey, callable.AnthropicURL), // 或 NewOpenAIProvider / NewOpenAIResponsesProvider
     callable.WithModel("claude-sonnet-5"),
 )
 
@@ -167,13 +167,35 @@ callable.User("这张图里是什么？", callable.Image("/tmp/a.png"))  // 图�
 ```go
 // GLM（自动启用 thinking:{type:"enabled"} 兼容字段）
 client := callable.NewClient(
-    callable.NewOpenAIProvider(key, "https://open.bigmodel.cn/api/paas/v4"),
+    callable.NewOpenAIProvider(key, callable.GLMURL),
     callable.WithModel("glm-4.7"),
 )
 
 // DeepSeek / Qwen / vLLM / Ollama … 同理
 // 手动覆盖嗅探结果：
 callable.NewOpenAIProvider(key, url, callable.WithCompat(callable.CompatNone))
+```
+
+### 内置端点常量
+
+常见厂商的 baseURL 已内置为常量，直接传给构造函数即可；未内置的端点照旧传实际 URL：
+
+| 常量 | 值 | 适用构造函数 |
+|---|---|---|
+| `OpenAIURL` | `https://api.openai.com/v1` | OpenAI / Responses |
+| `AnthropicURL` | `https://api.anthropic.com` | Anthropic |
+| `DeepSeekURL` | `https://api.deepseek.com` | OpenAI |
+| `DeepSeekAnthropicURL` | `https://api.deepseek.com/anthropic` | Anthropic |
+| `GLMURL` | `https://open.bigmodel.cn/api/paas/v4` | OpenAI |
+| `GLMAnthropicURL` | `https://open.bigmodel.cn/api/anthropic` | Anthropic |
+| `ZAIURL` | `https://api.z.ai/api/paas/v4` | OpenAI |
+| `ZAIAnthropicURL` | `https://api.z.ai/api/anthropic` | Anthropic |
+| `QwenURL` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenAI |
+| `ArkURL` | `https://ark.cn-beijing.volces.com/api/v3` | OpenAI |
+
+```go
+callable.NewAnthropicProvider(key, callable.DeepSeekAnthropicURL) // DeepSeek 的 Anthropic 兼容端点
+callable.NewOpenAIProvider(key, callable.QwenURL)                 // Qwen，方言自动嗅探
 ```
 
 ## 事件一览
