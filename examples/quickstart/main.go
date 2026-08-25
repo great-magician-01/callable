@@ -40,14 +40,14 @@ func main() {
 func newClient() *callable.Client {
 	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
 		return callable.NewClient(
-			callable.NewAnthropicProvider(key, firstNonEmptyEnv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")),
+			callable.NewAnthropicProvider(key, firstNonEmptyEnv("ANTHROPIC_BASE_URL", callable.AnthropicURL)),
 			callable.WithModel("claude-sonnet-5"),
 			callable.WithMaxTokens(2048),
 		)
 	}
 	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
 		return callable.NewClient(
-			callable.NewOpenAIProvider(key, firstNonEmptyEnv("OPENAI_BASE_URL", "https://api.openai.com/v1")), // chat completions; NewOpenAIResponsesProvider for /v1/responses
+			callable.NewOpenAIProvider(key, firstNonEmptyEnv("OPENAI_BASE_URL", callable.OpenAIURL)), // chat completions; NewOpenAIResponsesProvider for /v1/responses
 			callable.WithModel("gpt-5"),
 		)
 	}

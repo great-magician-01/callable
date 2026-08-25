@@ -16,7 +16,7 @@
 // A minimal example:
 //
 //	client := callable.NewClient(
-//		callable.NewAnthropicProvider(apiKey, "https://api.anthropic.com"),
+//		callable.NewAnthropicProvider(apiKey, callable.AnthropicURL),
 //		callable.WithModel("claude-sonnet-5"),
 //	)
 //	agent := callable.NewAgent(client,
@@ -246,24 +246,64 @@ const (
 	CompatGLM      = core.CompatGLM
 	CompatQwen     = core.CompatQwen
 	CompatDeepSeek = core.CompatDeepSeek
+	CompatArk      = core.CompatArk
+)
+
+// Well-known endpoint base URLs. Pass one as the baseURL argument of the
+// provider constructors instead of spelling out the address:
+//
+//	callable.NewAnthropicProvider(apiKey, callable.DeepSeekAnthropicURL)
+//	callable.NewOpenAIProvider(apiKey, callable.DeepSeekURL)
+//
+// Endpoint dialects are auto-detected from these URLs. Any other
+// OpenAI- or Anthropic-compatible endpoint can still be passed as a literal
+// baseURL.
+const (
+	// OpenAIURL is the official OpenAI API root (Chat Completions and
+	// Responses).
+	OpenAIURL = core.OpenAIURL
+	// AnthropicURL is the official Anthropic API root.
+	AnthropicURL = core.AnthropicURL
+
+	// DeepSeekURL is DeepSeek's OpenAI-compatible endpoint.
+	DeepSeekURL = core.DeepSeekURL
+	// GLMURL is Zhipu GLM's (bigmodel.cn) OpenAI-compatible endpoint.
+	GLMURL = core.GLMURL
+	// ZAIURL is Z.AI's OpenAI-compatible endpoint.
+	ZAIURL = core.ZAIURL
+	// QwenURL is Alibaba DashScope's OpenAI-compatible endpoint.
+	QwenURL = core.QwenURL
+	// ArkURL is Volcano Ark's OpenAI-compatible endpoint.
+	ArkURL = core.ArkURL
+
+	// DeepSeekAnthropicURL is DeepSeek's Anthropic-compatible endpoint.
+	DeepSeekAnthropicURL = core.DeepSeekAnthropicURL
+	// GLMAnthropicURL is Zhipu GLM's (bigmodel.cn) Anthropic-compatible
+	// endpoint.
+	GLMAnthropicURL = core.GLMAnthropicURL
+	// ZAIAnthropicURL is Z.AI's Anthropic-compatible endpoint.
+	ZAIAnthropicURL = core.ZAIAnthropicURL
 )
 
 // NewOpenAIProvider creates an OpenAI Chat Completions provider for the given
 // endpoint. baseURL is the API root including any version prefix; any
-// OpenAI-compatible endpoint (GLM, DeepSeek, Qwen, ...) works.
+// OpenAI-compatible endpoint (GLM, DeepSeek, Qwen, ...) works. Well-known
+// endpoints are available as constants, e.g. OpenAIURL or DeepSeekURL.
 func NewOpenAIProvider(apiKey, baseURL string, opts ...ProviderOption) *OpenAIProvider {
 	return core.NewOpenAIProvider(apiKey, baseURL, opts...)
 }
 
 // NewOpenAIResponsesProvider creates an OpenAI Responses provider for the
-// given endpoint. baseURL is the API root including any version prefix.
+// given endpoint. baseURL is the API root including any version prefix, e.g.
+// OpenAIURL.
 func NewOpenAIResponsesProvider(apiKey, baseURL string, opts ...ProviderOption) *OpenAIResponsesProvider {
 	return core.NewOpenAIResponsesProvider(apiKey, baseURL, opts...)
 }
 
 // NewAnthropicProvider creates an Anthropic Messages provider for the given
-// endpoint, e.g. "https://api.anthropic.com". A baseURL already ending in /v1
-// is tolerated.
+// endpoint, e.g. AnthropicURL. A baseURL already ending in /v1 is tolerated.
+// Anthropic-compatible third-party endpoints are available as constants, e.g.
+// DeepSeekAnthropicURL.
 func NewAnthropicProvider(apiKey, baseURL string, opts ...ProviderOption) *AnthropicProvider {
 	return core.NewAnthropicProvider(apiKey, baseURL, opts...)
 }

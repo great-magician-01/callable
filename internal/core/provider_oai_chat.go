@@ -19,8 +19,8 @@ type OpenAIProvider struct {
 }
 
 // NewOpenAIProvider creates a Chat Completions provider for the given endpoint.
-// baseURL is the API root including any version prefix, e.g.
-// "https://open.bigmodel.cn/api/paas/v4" or "https://api.openai.com/v1".
+// baseURL is the API root including any version prefix; well-known endpoints
+// are available as constants (OpenAIURL, DeepSeekURL, GLMURL, ...).
 func NewOpenAIProvider(apiKey, baseURL string, opts ...ProviderOption) *OpenAIProvider {
 	cfg := defaultProviderConfig(baseURL)
 	for _, o := range opts {
