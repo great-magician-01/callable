@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/great-magician-01/callable/compare/v0.5.0...v0.6.0) (2026-08-27)
+
+
+### Features
+
+* add sub-agent delegation with progressive disclosure ([0e9fd77](https://github.com/great-magician-01/callable/commit/0e9fd77d6a21c24d19adb560d313e5569417fab2))
+* 添加子代理事件透传功能，支持在父代理中接收子代理的事件 ([4f7bf82](https://github.com/great-magician-01/callable/commit/4f7bf82fbf70061511a6086b5c5861cfa38a837f))
+
 ## [0.5.0](https://github.com/great-magician-01/callable/compare/v0.4.0...v0.5.0) (2026-08-25)
 
 
