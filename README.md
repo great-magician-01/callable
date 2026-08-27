@@ -1,5 +1,7 @@
 # callable
 
+**中文** | [English](README_EN.md)
+
 统一的 Go LLM 调用库：一套 API 同时支持 **OpenAI（Chat Completions / Responses）** 与 **Anthropic** 格式，内置完整的 **agent loop**（工具调用循环、skill 渐进式披露、思考模式、图片输入、流式输出）。
 
 ```
@@ -207,7 +209,7 @@ callable.WithThinking(callable.Thinking{BudgetTokens: 16000})             // Ant
 ```go
 callable.Image("/tmp/截图.png")         // 本地路径：读文件 + 识别类型 + base64
 callable.Image("https://cdn/x.jpg")     // URL 直接透传
-callable.ImageBytes(data, "png")        // 原始字节
+callable.ImageBytes(data, "image/png")  // 原始字节（mediaType 需为完整 MIME 类型）
 callable.User("这张图里是什么？", callable.Image("/tmp/a.png"))  // 图文混排
 ```
 
@@ -296,6 +298,22 @@ if errors.Is(err, context.DeadlineExceeded) {
 ## 更多示例
 
 见 [`examples/`](./examples)：quickstart、tools（agent loop）、thinking（思考+多轮会话）、vision（图片）、skills（渐进披露）、subagents（子代理委派）。
+
+## 文档
+
+按功能拆分的详细使用文档，英文版见 [`docs/en/`](./docs/en)（每篇文档页内也有语言切换链接）：
+
+- [快速开始](./docs/zh/getting-started.md)：安装、Client 与 Provider、端点常量、Compat 方言
+- [消息模型](./docs/zh/messages.md)：Message/Part、构造器、历史回传保真、持久化
+- [Agent 循环](./docs/zh/agent.md)：Run/RunStream、审批钩子、并行工具、max turns
+- [多轮会话](./docs/zh/session.md)：Session、历史持久化与恢复
+- [工具](./docs/zh/tools.md)：NewTool/NewRawTool、JSON Schema 生成、错误回传
+- [流式事件](./docs/zh/streaming.md)：事件类型一览、事件序列、Usage
+- [思考模式](./docs/zh/thinking.md)：Effort 映射、各家端点的坑
+- [Skill 渐进披露](./docs/zh/skills.md)：read_skill、读取钩子
+- [子代理](./docs/zh/subagents.md)：load_agent 两步委派、事件透传
+- [图片输入](./docs/zh/images.md)：本地/URL/字节、跨 provider 转换
+- [错误处理](./docs/zh/errors.md)：重试、取消与超时、WithExtra 逃生舱
 
 ## 设计说明
 

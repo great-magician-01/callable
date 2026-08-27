@@ -1,0 +1,220 @@
+# 多轮会话（Session）
+
+**中文** | [English](../en/session.md)
+
+`Session` 维护跨多次调用的对话历史：每轮 Ask 自动把之前的消息（含 thinking 块和工具调用轨迹）带上发给模型，结束后把新产生的消息追加进历史。它是对 [Agent 循环](agent.md) 的一层薄封装——所有 agent 能力（工具、思考模式、skill、图片、流式事件）在会话中照常工作，只是上下文由 Session 替你管理。
+
+Session 与 provider 无关：同一份历史可以发给 OpenAI Chat Completions、OpenAI Responses 或 Anthropic，各家所需的回传数据（Anthropic 的 thinking signature、Responses 的 reasoning item、DeepSeek/GLM 的 `reasoning_content`）都会原样保留并在发送时转换。
+
+## API 一览
+
+```go
+sess := agent.Session()
+
+result, err := sess.Ask(ctx, callable.User("你好"))
+result, err := sess.AskStream(ctx, onEvent, callable.User("继续"))
+
+history := sess.History()       // []callable.Message 的副本
+sess.SetHistory(restored)       // 整体替换历史（如恢复持久化状态）
+sess.Reset()                    // 清空历史
+```
+
+| 方法 | 签名 | 说明 |
+|---|---|---|
+| `Agent.Session` | `func (a *Agent) Session() *Session` | 在该 agent 上创建新会话，历史为空。一个 agent 可同时挂多个独立会话 |
+| `Session.Ask` | `func (s *Session) Ask(ctx context.Context, messages ...Message) (*AgentResult, error)` | 把消息追加到历史尾部并运行 agent loop（非流式），等价于 `agent.Run`，只是输入自动带上历史 |
+| `Session.AskStream` | `func (s *Session) AskStream(ctx context.Context, onEvent func(Event), messages ...Message) (*AgentResult, error)` | 同上，并把全部流式事件转发给 `onEvent`（见[流式事件](streaming.md)） |
+| `Session.History` | `func (s *Session) History() []Message` | 返回当前对话历史的**副本**（不含 system prompt），修改返回值不影响会话 |
+| `Session.SetHistory` | `func (s *Session) SetHistory(messages []Message)` | 整体替换历史（内部拷贝入参），用于恢复持久化的会话或手工构造上下文 |
+| `Session.Reset` | `func (s *Session) Reset()` | 清空历史，会话回到刚创建时的状态 |
+
+返回值 `*AgentResult` 与 `agent.Run` 一致：`FinalText`（最终回答）、`Messages`（本轮完整轨迹：输入消息 + 所有 assistant / tool 消息）、`Usage`（跨轮累计）、`Turns`、`StopReason`（`AgentCompleted` / `AgentMaxTurns`）。
+
+## 基本用法
+
+```go
+client := callable.NewClient(
+    callable.NewAnthropicProvider(apiKey, callable.AnthropicURL),
+    callable.WithModel("claude-sonnet-5"),
+)
+agent := callable.NewAgent(client,
+    callable.WithSystemPrompt("你是一个务实的助手"),
+    callable.WithTools(weather),
+    callable.WithThinking(callable.Thinking{Effort: callable.EffortMedium}),
+)
+
+session := agent.Session()
+questions := []string{
+    "一个三位数，各位数字之和为 12，且数字互不相同，这样的数最多有几个？",
+    "把你的推理过程总结成两句话。", // 模型能看到上一轮的完整问答
+}
+
+for _, q := range questions {
+    _, err := session.AskStream(ctx, func(ev callable.Event) {
+        switch e := ev.(type) {
+        case callable.ThinkingDeltaEvent:
+            fmt.Fprintf(os.Stderr, "\033[2m%s\033[0m", e.Delta) // 思考增量
+        case callable.TextDeltaEvent:
+            fmt.Print(e.Delta) // 正文增量
+        }
+    }, callable.User(q))
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+
+fmt.Println("历史消息数:", len(session.History()))
+```
+
+（完整可运行版本见 `examples/thinking/main.go`。）
+
+## 工作原理
+
+- 每次 Ask 时，Session 把「已有历史 + 本次输入消息」拼成完整输入交给 agent loop；system prompt 由 agent 在每次请求时注入，**不进入**历史。
+- 运行**成功**（`err == nil`）后，`result.Messages` 成为新的历史——即旧历史 + 本次输入 + 本轮所有 assistant 消息（含 thinking 与 tool_call）+ 所有 tool 结果消息。下一轮 Ask 时全部回传。
+- 一轮 Ask 可能包含多个 loop 轮次（模型调工具 → 工具结果回传 → 再问模型），这些中间消息同样完整保留在历史里。
+
+## 历史持久化：序列化到 JSON 并恢复
+
+`Message` 及其所有 Part 类型都实现了 JSON 序列化（含 provider 回传数据，见下一节），所以 `History()` 的结果可以直接 `json.Marshal`，反序列化后用 `SetHistory` 恢复，会话无缝继续：
+
+```go
+package main
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "log"
+    "os"
+
+    callable "github.com/great-magician-01/callable"
+)
+
+const historyFile = "session.json"
+
+// 保存历史到文件
+func saveHistory(sess *callable.Session) error {
+    data, err := json.MarshalIndent(sess.History(), "", "  ")
+    if err != nil {
+        return err
+    }
+    return os.WriteFile(historyFile, data, 0o644)
+}
+
+// 从文件恢复历史；文件不存在时返回 nil（新会话）
+func loadHistory() ([]callable.Message, error) {
+    data, err := os.ReadFile(historyFile)
+    if os.IsNotExist(err) {
+        return nil, nil
+    }
+    if err != nil {
+        return nil, err
+    }
+    var history []callable.Message
+    if err := json.Unmarshal(data, &history); err != nil {
+        return nil, err
+    }
+    return history, nil
+}
+
+func main() {
+    ctx := context.Background()
+
+    client := callable.NewClient(
+        callable.NewAnthropicProvider(os.Getenv("ANTHROPIC_API_KEY"), callable.AnthropicURL),
+        callable.WithModel("claude-sonnet-5"),
+    )
+    agent := callable.NewAgent(client,
+        callable.WithThinking(callable.Thinking{Effort: callable.EffortMedium}),
+    )
+    session := agent.Session()
+
+    // 恢复上次的会话（如有）
+    history, err := loadHistory()
+    if err != nil {
+        log.Fatal(err)
+    }
+    session.SetHistory(history)
+
+    result, err := session.Ask(ctx, callable.User("我们上次聊到哪儿了？"))
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(result.FinalText)
+
+    // 持久化更新后的历史，供下次运行恢复
+    if err := saveHistory(session); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+序列化后的每条消息形如：
+
+```json
+{
+  "role": "assistant",
+  "parts": [
+    {"type": "thinking", "text": "……", "signature": "EgkBCk…"},
+    {"type": "tool_call", "id": "toolu_01…", "name": "get_weather", "arguments": "{\"city\":\"北京\"}"},
+    {"type": "text", "text": "北京当前 26°C，晴。"}
+  ],
+  "provider_extra": { "openai-responses": [ /* reasoning item 原文 */ ] }
+}
+```
+
+其中 `type` 是 Part 的判别字段（`text` / `image` / `thinking` / `tool_call` / `tool_result`），反序列化时自动还原为具体类型。细节见[消息模型](messages.md)。
+
+## thinking 块与工具轨迹的保留
+
+历史保真是 Session 的核心价值，缺少任何一块都会导致 provider 报错或模型"失忆"：
+
+- **ThinkingPart 原样保留**：思考文本连同 Anthropic 的 `signature`（加密签名，不回传会 400）、OpenAI Responses 的 reasoning item id 都会存在历史里。
+- **provider 原始数据随行**：无法塞进统一模型的原始负载（如 Responses 的完整 reasoning item）通过 `Message.SetProviderExtra` 挂在消息上，按 provider 名索引，序列化时落在 `provider_extra` 字段里，跨进程持久化不丢。
+- **工具轨迹完整配对**：assistant 消息里的每个 `tool_call` 都有对应 `tool` 消息里的 `tool_result`（按 ID 配对）。取消时未执行的工具会被合成 `IsError` 结果补齐，保证部分轨迹也是可重放的有效会话。
+- **国产端点兼容**：DeepSeek/GLM 的 `reasoning_content`、Qwen 的思考内容同样保存在 ThinkingPart 中并在下轮回传。
+
+因此：不要自己裁剪或改写历史里的 assistant / tool 消息。如果必须手工构造历史（`SetHistory`），请保证每个 tool_call 都有配对的 tool_result，否则各家 API 会拒绝请求。
+
+## 取消与出错不污染历史
+
+Session 只在运行**完全成功**（`err == nil`）时才更新历史。以下情况历史保持不变，可安全重试或换个问题继续问：
+
+- `ctx` 被取消或超时（错误满足 `errors.Is(err, context.Canceled)` / `context.DeadlineExceeded`）
+- 网络错误、`APIError`（含重试耗尽后）
+- `MaxTurnsError`（loop 达到轮数上限——注意它虽然带有 `Partial` 部分结果，但仍属于错误，历史不更新）
+
+之所以这样设计：中止的运行可能停在一条"发起了 tool_call 但结果未回传"的 assistant 消息上，写入历史后下次请求会被 provider 拒绝。中止时的部分文本仍可通过返回的 `*AgentResult`（非 nil）拿到，只是不进历史：
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer cancel()
+
+before := len(sess.History())
+result, err := sess.Ask(ctx, callable.User("写一篇长文"))
+if errors.Is(err, context.DeadlineExceeded) {
+    // result 非 nil：result.FinalText 是已生成的部分文本
+    // 但历史未变，下面这行成立：
+    fmt.Println(len(sess.History()) == before) // true
+    // 可以直接重试：
+    result, err = sess.Ask(context.Background(), callable.User("写一篇长文"))
+}
+```
+
+## 注意事项
+
+- **并发**：`Session` 不是并发安全的，不要在多个 goroutine 里同时 Ask 同一个会话；需要并发请给每个 goroutine 一个独立会话。
+- **空消息**：`Ask(ctx)`（不传消息）会在历史为空时报错 `agent run requires at least one input message`；历史非空时则相当于"让模型基于现有历史再说点什么"。
+- **History 是副本**：`History()` 返回拷贝，追加消息请通过 `Ask` 或 `SetHistory`，直接改返回值无效。
+- **一个 agent 多个会话**：`agent.Session()` 可多次调用，各会话历史互不影响；但所有会话共享 agent 的配置（工具、system prompt、思考模式）。
+- **历史增长**：历史只增不减（除非 Reset / SetHistory），长会话要注意 token 成本，必要时自行用 `SetHistory` 截断或摘要（截断时同样要保证工具调用配对完整）。
+- **system prompt 不入历史**：`History()` / `SetHistory()` 只管理 user / assistant / tool 消息；system prompt 由 agent 配置（`WithSystemPrompt`、skill 索引等）在每次请求时注入，不参与持久化。
+
+## 相关文档
+
+- [Agent 循环](agent.md) — Ask 背后运行的 loop 机制
+- [消息模型](messages.md) — Message / Part 结构与序列化格式
+- [思考模式](thinking.md) — thinking 块的 provider 映射
+- [流式事件](streaming.md) — AskStream 的事件类型
+- [错误处理](errors.md) — APIError、MaxTurnsError 与取消语义
