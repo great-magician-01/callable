@@ -17,8 +17,9 @@ type AnthropicProvider struct {
 }
 
 // NewAnthropicProvider creates an Anthropic Messages provider for the given
-// endpoint, e.g. "https://api.anthropic.com". A baseURL already ending in /v1
-// is tolerated.
+// endpoint, e.g. AnthropicURL. A baseURL already ending in /v1 is tolerated.
+// Anthropic-compatible third-party endpoints are available as constants, e.g.
+// DeepSeekAnthropicURL.
 func NewAnthropicProvider(apiKey, baseURL string, opts ...ProviderOption) *AnthropicProvider {
 	cfg := defaultProviderConfig(baseURL)
 	for _, o := range opts {

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/great-magician-01/callable/compare/v0.4.0...v0.5.0) (2026-08-25)
+
+
+### Features
+
+* 添加内置端点常量，简化提供者构造函数的使用 ([ae14b5f](https://github.com/great-magician-01/callable/commit/ae14b5f8d2134c199b09cc9464ca96a573af9858))
+* 添加内置端点常量，简化提供者构造函数的使用 ([16163ce](https://github.com/great-magician-01/callable/commit/16163ce1218bd3258bf7150590f6bbd3c1bfc636))
+
 ## [0.4.0](https://github.com/great-magician-01/callable/compare/v0.3.0...v0.4.0) (2026-08-24)
 
 
