@@ -146,6 +146,9 @@ type (
 	ToolResultEvent = core.ToolResultEvent
 	// AgentDoneEvent is emitted when the agent loop finished.
 	AgentDoneEvent = core.AgentDoneEvent
+	// SubAgentEvent wraps an event emitted inside a delegated sub-agent's
+	// loop; only produced when WithSubAgentEvents is enabled.
+	SubAgentEvent = core.SubAgentEvent
 )
 
 // ── Thinking / reasoning ───────────────────────────────────────────────────
@@ -461,6 +464,11 @@ func WithSubAgentToolName(name string) AgentOption { return core.WithSubAgentToo
 
 // WithSubAgentToolDisabled removes the built-in sub-agent-loading tool.
 func WithSubAgentToolDisabled() AgentOption { return core.WithSubAgentToolDisabled() }
+
+// WithSubAgentEvents enables forwarding of sub-agent loop events: every event
+// inside a delegated sub-agent's run is wrapped in a SubAgentEvent (with the
+// sub-agent's name) and sent to the parent agent's event sink. Default off.
+func WithSubAgentEvents(enabled bool) AgentOption { return core.WithSubAgentEvents(enabled) }
 
 // Approve lets the tool call execute as requested.
 func Approve() ToolDecision { return core.Approve() }

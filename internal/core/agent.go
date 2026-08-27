@@ -62,6 +62,7 @@ type Agent struct {
 
 	subAgentToolName     string
 	subAgentToolDisabled bool
+	subAgentEvents       bool
 
 	tools *toolSet // user tools + built-ins + dynamically loaded call_<subagent>
 	subs  *subAgentRegistry
@@ -161,6 +162,14 @@ func WithSubAgentToolDisabled() AgentOption {
 	return func(a *Agent) { a.subAgentToolDisabled = true }
 }
 
+// WithSubAgentEvents enables forwarding of sub-agent loop events to this
+// agent's event sink (default off). When enabled, every event emitted inside a
+// delegated sub-agent's run is wrapped in a SubAgentEvent (carrying the
+// sub-agent's name) and forwarded to the sink passed to RunStream/AskStream.
+func WithSubAgentEvents(enabled bool) AgentOption {
+	return func(a *Agent) { a.subAgentEvents = enabled }
+}
+
 // NewAgent creates an Agent over the client.
 func NewAgent(client *Client, opts ...AgentOption) *Agent {
 	a := &Agent{
@@ -218,6 +227,12 @@ func (a *Agent) RunStream(ctx context.Context, onEvent eventSink, messages ...Me
 	result := &AgentResult{Messages: append([]Message{}, messages...)}
 	if len(messages) == 0 {
 		return result, fmt.Errorf("callable: agent run requires at least one input message")
+	}
+
+	// Make the sink visible to call_<name> tools so delegated sub-agents can
+	// forward their own events (wrapped in SubAgentEvent) to it.
+	if a.subAgentEvents && onEvent != nil {
+		ctx = context.WithValue(ctx, subAgentEventSinkKey{}, onEvent)
 	}
 
 	conv := make([]Message, 0, len(messages)+4)

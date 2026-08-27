@@ -27,11 +27,11 @@ type SubAgent struct {
 	// delegate to this sub-agent.
 	Description string
 
-	client   *Client  // nil: inherit the parent agent's client
-	model    string   // non-empty: override the model on the inherited client
-	prompt   string   // system prompt of the sub-agent
-	tools    []Tool   // tools available inside the sub-agent loop
-	skills   []Skill  // skills available inside the sub-agent loop
+	client   *Client // nil: inherit the parent agent's client
+	model    string  // non-empty: override the model on the inherited client
+	prompt   string  // system prompt of the sub-agent
+	tools    []Tool  // tools available inside the sub-agent loop
+	skills   []Skill // skills available inside the sub-agent loop
 	thinking *Thinking
 	maxTurns int
 }
@@ -245,12 +245,31 @@ func subAgentCallToolDescription(sub SubAgent) string {
 		sub.Name, sub.Description)
 }
 
+// subAgentEventSinkKey carries the parent agent's event sink through the
+// context, so a call_<name> tool can forward its sub-agent's events. It is
+// request-scoped (set per RunStream call), so parallel sessions of the same
+// agent each forward to their own sink.
+type subAgentEventSinkKey struct{}
+
 // newSubAgentCallTool builds the tool that runs one delegation to the
 // sub-agent. A fresh Agent is built per call, so calls never share history.
 func newSubAgentCallTool(sub SubAgent, parent *Client) Tool {
 	return NewTool(subAgentCallToolName(sub.Name), subAgentCallToolDescription(sub),
 		func(ctx context.Context, args subAgentCallArgs) (any, error) {
-			res, err := sub.build(parent).Run(ctx, User(args.Task))
+			subAgent := sub.build(parent)
+			var (
+				res *AgentResult
+				err error
+			)
+			if sink, _ := ctx.Value(subAgentEventSinkKey{}).(eventSink); sink != nil {
+				// Event forwarding is on: stream the sub-agent's loop and wrap
+				// every event with the sub-agent's name.
+				res, err = subAgent.RunStream(ctx, func(ev Event) {
+					sink(SubAgentEvent{SubAgent: sub.Name, Event: ev})
+				}, User(args.Task))
+			} else {
+				res, err = subAgent.Run(ctx, User(args.Task))
+			}
 			if err != nil {
 				// A sub-agent that hit its turn limit may still have produced
 				// a usable partial answer; hand it back instead of failing.

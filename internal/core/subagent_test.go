@@ -378,3 +378,101 @@ func TestLastAssistantText(t *testing.T) {
 		t.Errorf("no assistant text: got %q", got)
 	}
 }
+
+// TestSubAgentEventForwarding verifies that with WithSubAgentEvents(true) the
+// sub-agent streams its loop and every event reaches the parent's sink
+// wrapped in a SubAgentEvent.
+func TestSubAgentEventForwarding(t *testing.T) {
+	callTurn := chatSSE(
+		chatToolCallChunk(0, "call_1", "call_translator", `{"task":"translate: 你好"}`, true),
+		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+	)
+	// With forwarding on, the sub-agent runs streaming (Stream), so its mock
+	// responses are SSE too.
+	subAnswer := chatSSE(
+		`{"choices":[{"delta":{"content":"hel"}}]}`,
+		`{"choices":[{"delta":{"content":"lo"}}]}`,
+		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+	)
+	finalTurn := chatSSE(
+		`{"choices":[{"delta":{"content":"done"}}]}`,
+		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+	)
+
+	var bodies []string
+	agent := chatAgentFixture(t, []string{callTurn, subAnswer, finalTurn}, &bodies,
+		WithSubAgents(translatorSub()),
+		WithSubAgentEvents(true),
+	)
+	agent.subs.load("translator")
+
+	var events []Event
+	_, err := agent.RunStream(context.Background(), func(ev Event) { events = append(events, ev) }, User("translate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var deltas int
+	var sawTurnStart, sawDone bool
+	for _, ev := range events {
+		se, ok := ev.(SubAgentEvent)
+		if !ok {
+			continue
+		}
+		if se.SubAgent != "translator" {
+			t.Errorf("SubAgentEvent.SubAgent = %q, want translator", se.SubAgent)
+		}
+		switch se.Event.(type) {
+		case TextDeltaEvent:
+			deltas++
+		case TurnStartEvent:
+			sawTurnStart = true
+		case AgentDoneEvent:
+			sawDone = true
+		}
+	}
+	if deltas != 2 {
+		t.Errorf("forwarded text deltas = %d, want 2", deltas)
+	}
+	if !sawTurnStart || !sawDone {
+		t.Errorf("missing wrapped TurnStart/AgentDone events (turnStart=%v done=%v)", sawTurnStart, sawDone)
+	}
+	// The sub-agent must have used the streaming endpoint.
+	if !strings.Contains(bodies[1], `"stream":true`) {
+		t.Errorf("sub-agent request not streaming:\n%s", bodies[1])
+	}
+}
+
+// TestSubAgentEventsOffByDefault verifies that without WithSubAgentEvents the
+// sub-agent runs non-streaming and emits no SubAgentEvent.
+func TestSubAgentEventsOffByDefault(t *testing.T) {
+	callTurn := chatSSE(
+		chatToolCallChunk(0, "call_1", "call_translator", `{"task":"translate: 你好"}`, true),
+		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+	)
+	subAnswer := chatJSON("hello")
+	finalTurn := chatSSE(
+		`{"choices":[{"delta":{"content":"done"}}]}`,
+		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+	)
+
+	var bodies []string
+	agent := chatAgentFixture(t, []string{callTurn, subAnswer, finalTurn}, &bodies,
+		WithSubAgents(translatorSub()),
+	)
+	agent.subs.load("translator")
+
+	var events []Event
+	_, err := agent.RunStream(context.Background(), func(ev Event) { events = append(events, ev) }, User("translate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range events {
+		if _, ok := ev.(SubAgentEvent); ok {
+			t.Errorf("unexpected SubAgentEvent with forwarding disabled: %+v", ev)
+		}
+	}
+	if strings.Contains(bodies[1], `"stream":true`) {
+		t.Errorf("sub-agent request should be non-streaming by default:\n%s", bodies[1])
+	}
+}

@@ -53,6 +53,7 @@ func main() {
 		callable.WithSystemPrompt("你是主编排者。翻译交给 translator，写诗交给 poet，不要自己动手。"),
 		callable.WithSubAgents(translator, poet),
 		callable.WithMaxTurns(15),
+		callable.WithSubAgentEvents(true), // 子代理内部事件包装为 SubAgentEvent 透传
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
@@ -68,6 +69,16 @@ func main() {
 			fmt.Printf("\n[tool result] %s -> %s\n", e.Call.Name, e.Result.Content)
 		case callable.TurnStartEvent:
 			fmt.Printf("\n--- turn %d ---\n", e.Turn)
+		case callable.SubAgentEvent:
+			// 子代理内部事件：灰暗色缩进展示，与父 agent 输出区分。
+			switch se := e.Event.(type) {
+			case callable.TextDeltaEvent:
+				fmt.Printf("\033[2m%s\033[0m", se.Delta)
+			case callable.ToolCallEvent:
+				fmt.Printf("\n  [%s] tool call %s(%s)\n", e.SubAgent, se.Call.Name, se.Call.Arguments)
+			case callable.ToolResultEvent:
+				fmt.Printf("\n  [%s] tool result %s -> %s\n", e.SubAgent, se.Call.Name, se.Result.Content)
+			}
 		}
 	}, callable.User("把「月色真美」翻译成英文，再围绕它写一首短诗。"))
 	if err != nil {

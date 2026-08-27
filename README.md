@@ -181,6 +181,7 @@ call_<name> tool, which you then call with a self-contained task description.
 - 内置工具名默认 `load_agent`，可用 `WithSubAgentToolName` 改名、`WithSubAgentToolDisabled` 禁用后自行注册替代
 - 子 agent 不继承父 agent 的子代理列表（不嵌套）；每次调用都是全新会话，互相不共享历史
 - 子 agent 达到 max turns 时，已产生的部分回答会带回给父 agent 并附提示，而不是直接失败
+- 事件透传：默认子代理内部对父 agent 的事件回调不可见；`WithSubAgentEvents(true)` 后子代理改为流式执行，其每个事件包装为 `SubAgentEvent`（含子代理名和原始事件）转发到父 agent 的事件回调，消费端可据此区分主/子输出
 
 ## 思考模式
 

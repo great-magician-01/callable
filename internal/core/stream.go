@@ -94,5 +94,16 @@ type AgentDoneEvent struct {
 
 func (AgentDoneEvent) event() {}
 
+// SubAgentEvent wraps an event emitted inside a sub-agent's own loop. It is
+// only produced when the parent agent enables sub-agent event forwarding (see
+// WithSubAgentEvents); SubAgent is the name of the delegated sub-agent the
+// inner Event came from.
+type SubAgentEvent struct {
+	SubAgent string
+	Event    Event
+}
+
+func (SubAgentEvent) event() {}
+
 // eventSink is the callback signature used for streaming.
 type eventSink func(Event)
