@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/invopop/jsonschema"
 )
@@ -172,8 +173,11 @@ func mustJSON(v any) string {
 	return string(b)
 }
 
-// toolSet is an ordered, name-keyed tool registry used by the Agent.
+// toolSet is an ordered, name-keyed tool registry used by the Agent. It is
+// safe for concurrent use: sub-agent loading registers tools at runtime while
+// other sessions of the same agent may be listing tools.
 type toolSet struct {
+	mu     sync.RWMutex
 	order  []Tool
 	byName map[string]Tool
 }
@@ -185,6 +189,8 @@ func newToolSet() *toolSet {
 // add registers tools; a tool whose name is already taken is skipped, so
 // user-defined tools win over built-ins.
 func (s *toolSet) add(tools ...Tool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, t := range tools {
 		if t == nil {
 			continue
@@ -198,11 +204,21 @@ func (s *toolSet) add(tools ...Tool) {
 	}
 }
 
-func (s *toolSet) list() []Tool { return s.order }
+func (s *toolSet) list() []Tool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]Tool{}, s.order...)
+}
 
 func (s *toolSet) get(name string) (Tool, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	t, ok := s.byName[name]
 	return t, ok
 }
 
-func (s *toolSet) len() int { return len(s.order) }
+func (s *toolSet) len() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.order)
+}

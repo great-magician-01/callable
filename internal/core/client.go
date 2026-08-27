@@ -42,6 +42,15 @@ func NewClient(provider Provider, opts ...ClientOption) *Client {
 // Provider returns the underlying provider.
 func (c *Client) Provider() Provider { return c.provider }
 
+// derive returns a copy of the client with a different default model, keeping
+// the provider and all other defaults. Used by sub-agents with a model
+// override.
+func (c *Client) derive(model string) *Client {
+	cp := *c
+	cp.model = model
+	return &cp
+}
+
 // Create performs a single non-streaming model call.
 func (c *Client) Create(ctx context.Context, req *Request) (*Response, error) {
 	return c.provider.Create(ctx, c.applyDefaults(req))

@@ -25,6 +25,7 @@
 - **流式**：统一的 `ThinkingDelta / TextDelta / ToolCallDelta / ToolResult / Turn*` 事件流，agent loop 全程可见
 - **思考模式**：统一的 `Effort`（low/medium/high）映射到各家原生字段；自动适配 GLM/智谱、火山方舟、Qwen、DeepSeek 等国产端点的非标思考字段（按 BaseURL 自动嗅探）
 - **Skill 渐进式披露**：system prompt 只注入 name/description 索引，模型按需通过内置 `read_skill` 工具加载全文；读取钩子可改写内容
+- **SubAgent 委派**：注册命名子代理（可指定模型、提示词、工具、skill），默认**不进工具列表**——模型先经内置 `load_agent` 工具手动加载，动态生成 `call_<name>` 工具后才能委派子任务
 - **图片输入**：传本地路径 / URL / 字节，发送时按目标 provider 自动转换格式（base64 source / data URL）
 - **零依赖网络层**：HTTP 重试（429/5xx 指数退避）、SSE 解析均为标准库实现；唯一第三方依赖是 `invopop/jsonschema`
 
@@ -132,6 +133,55 @@ read_skill tool to load its full instructions, then follow them.
 
 内置工具名默认为 `read_skill`，可用 `WithSkillToolName` 改名、`WithSkillToolDisabled` 禁用后自行注册替代工具。
 
+## SubAgent：子代理委派
+
+```go
+translator := callable.NewSubAgent("translator", "把中文翻译成地道的英文",
+    callable.WithSubAgentModel("gpt-5-mini"),        // 指定模型（沿用父 client 的端点与密钥）
+    callable.WithSubAgentPrompt("你是一名专业译者……"), // 指定提示词
+)
+
+researcher := callable.NewSubAgent("researcher", "深度调研一个主题",
+    callable.WithSubAgentClient(otherClient),   // 或完全换成另一个 client/provider
+    callable.WithSubAgentTools(searchTool),     // 指定工具（对父 agent 不可见）
+    callable.WithSubAgentSkills(citingSkill),   // 指定 skill（子 agent 自带 read_skill）
+    callable.WithSubAgentThinking(callable.Thinking{Effort: callable.EffortHigh}),
+    callable.WithSubAgentMaxTurns(10),
+)
+
+agent := callable.NewAgent(client,
+    callable.WithSystemPrompt("翻译交给 translator，调研交给 researcher"),
+    callable.WithSubAgents(translator, researcher),
+)
+```
+
+与 skill 一样走渐进式披露：**子 agent 默认不会加载进工具列表**，system prompt 只注入 name/description 索引：
+
+```
+<available_agents>
+The following sub-agents are available for delegating subtasks. They are NOT
+loaded as tools yet. When a subtask matches one of them, first call the
+load_agent tool with the sub-agent's name to load it; this registers a
+call_<name> tool, which you then call with a self-contained task description.
+
+- translator: 把中文翻译成地道的英文
+- researcher: 深度调研一个主题
+</available_agents>
+```
+
+委派流程分两步，均由模型驱动：
+
+1. **手动加载**：模型调用内置 `load_agent` 工具 → 返回该子 agent 的完整卡片（描述、提示词、能力清单），同时**动态注册** `call_<name>` 工具，下一轮请求起对模型可见
+2. **调用**：模型调用 `call_<name>({"task": "..."})` → 子 agent 以全新会话独立跑自己的 agent loop（用自己的模型/工具/skill），最终回答作为工具结果返回给父 agent
+
+行为细节：
+
+- 加载幂等：load 一次后 `call_<name>` 持续可用；若与用户自定义工具重名，加载会报错而不是覆盖
+- 未加载时直接调用 `call_<name>` 会得到 unknown tool 错误（工具列表里确实没有它）
+- 内置工具名默认 `load_agent`，可用 `WithSubAgentToolName` 改名、`WithSubAgentToolDisabled` 禁用后自行注册替代
+- 子 agent 不继承父 agent 的子代理列表（不嵌套）；每次调用都是全新会话，互相不共享历史
+- 子 agent 达到 max turns 时，已产生的部分回答会带回给父 agent 并附提示，而不是直接失败
+
 ## 思考模式
 
 ```go
@@ -222,7 +272,7 @@ if errors.Is(err, context.DeadlineExceeded) {
 
 ## 更多示例
 
-见 [`examples/`](./examples)：quickstart、tools（agent loop）、thinking（思考+多轮会话）、vision（图片）、skills（渐进披露）。
+见 [`examples/`](./examples)：quickstart、tools（agent loop）、thinking（思考+多轮会话）、vision（图片）、skills（渐进披露）、subagents（子代理委派）。
 
 ## 设计说明
 

@@ -49,6 +49,7 @@ type Agent struct {
 	systemPrompt string
 	userTools    []Tool
 	skills       []Skill
+	subAgents    []SubAgent
 	thinking     *Thinking
 
 	maxTurns      int
@@ -59,7 +60,11 @@ type Agent struct {
 	skillHook         SkillReadHook
 	skillToolDisabled bool
 
-	tools *toolSet // user tools + built-in read_skill
+	subAgentToolName     string
+	subAgentToolDisabled bool
+
+	tools *toolSet // user tools + built-ins + dynamically loaded call_<subagent>
+	subs  *subAgentRegistry
 }
 
 // AgentOption configures an Agent.
@@ -81,6 +86,15 @@ func WithTools(tools ...Tool) AgentOption {
 // built-in read_skill tool).
 func WithSkills(skills ...Skill) AgentOption {
 	return func(a *Agent) { a.skills = append(a.skills, skills...) }
+}
+
+// WithSubAgents registers sub-agent definitions for delegation. Like skills,
+// sub-agents use progressive disclosure: only name and description go into
+// the system prompt and no tool is registered up front. The model must first
+// call the built-in load_agent tool, which registers a call_<name> tool it
+// can then invoke to run the sub-agent.
+func WithSubAgents(subs ...SubAgent) AgentOption {
+	return func(a *Agent) { a.subAgents = append(a.subAgents, subs...) }
 }
 
 // WithThinking enables reasoning mode for all runs.
@@ -130,12 +144,30 @@ func WithSkillToolDisabled() AgentOption {
 	return func(a *Agent) { a.skillToolDisabled = true }
 }
 
+// WithSubAgentToolName renames the built-in sub-agent-loading tool (default
+// "load_agent").
+func WithSubAgentToolName(name string) AgentOption {
+	return func(a *Agent) {
+		if name != "" {
+			a.subAgentToolName = name
+		}
+	}
+}
+
+// WithSubAgentToolDisabled suppresses the built-in load_agent tool; registered
+// sub-agents then only appear in the system prompt index. Register a
+// replacement loading tool (or the call_<name> tools) yourself in that case.
+func WithSubAgentToolDisabled() AgentOption {
+	return func(a *Agent) { a.subAgentToolDisabled = true }
+}
+
 // NewAgent creates an Agent over the client.
 func NewAgent(client *Client, opts ...AgentOption) *Agent {
 	a := &Agent{
-		client:        client,
-		maxTurns:      25,
-		skillToolName: DefaultSkillToolName,
+		client:           client,
+		maxTurns:         25,
+		skillToolName:    DefaultSkillToolName,
+		subAgentToolName: DefaultSubAgentLoadToolName,
 	}
 	for _, o := range opts {
 		o(a)
@@ -144,6 +176,10 @@ func NewAgent(client *Client, opts ...AgentOption) *Agent {
 	a.tools.add(a.userTools...)
 	if len(a.skills) > 0 && !a.skillToolDisabled {
 		a.tools.add(newSkillTool(a.skillToolName, a.skills, a.skillHook))
+	}
+	a.subs = newSubAgentRegistry(client, a.tools, a.subAgents)
+	if len(a.subAgents) > 0 && !a.subAgentToolDisabled {
+		a.tools.add(newSubAgentLoadTool(a.subAgentToolName, a.subs))
 	}
 	return a
 }
@@ -250,7 +286,8 @@ func (a *Agent) RunStream(ctx context.Context, onEvent eventSink, messages ...Me
 	return result, &MaxTurnsError{Turns: a.maxTurns, Partial: result}
 }
 
-// systemMessage assembles the system prompt: base prompt + skill index.
+// systemMessage assembles the system prompt: base prompt + skill index +
+// sub-agent index.
 func (a *Agent) systemMessage() Message {
 	var b strings.Builder
 	if a.systemPrompt != "" {
@@ -261,6 +298,12 @@ func (a *Agent) systemMessage() Message {
 			b.WriteString("\n\n")
 		}
 		b.WriteString(skillIndexBlock(a.skillToolName, a.skills))
+	}
+	if !a.subs.empty() {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(subAgentIndexBlock(a.subAgentToolName, a.subs.list()))
 	}
 	if b.Len() == 0 {
 		return Message{}

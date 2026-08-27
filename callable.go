@@ -11,7 +11,7 @@
 // On top of that sits an Agent that runs the full tool-calling loop
 // automatically: model -> tool execution -> model -> ... until a final answer,
 // with streaming events, thinking/reasoning support, skills (progressive
-// disclosure), and image input.
+// disclosure), sub-agent delegation, and image input.
 //
 // A minimal example:
 //
@@ -222,6 +222,49 @@ func NewSkill(name, description, instructions string) Skill {
 	return core.NewSkill(name, description, instructions)
 }
 
+// ── Sub-agents (delegation with progressive disclosure) ────────────────────
+
+type (
+	// SubAgent is a named agent definition the parent agent can delegate
+	// subtasks to. It is not exposed as a tool until the model loads it via
+	// the built-in load_agent tool.
+	SubAgent = core.SubAgent
+	// SubAgentOption configures a SubAgent.
+	SubAgentOption = core.SubAgentOption
+)
+
+// DefaultSubAgentLoadToolName is the name of the built-in sub-agent-loading
+// tool.
+const DefaultSubAgentLoadToolName = core.DefaultSubAgentLoadToolName
+
+// NewSubAgent builds a SubAgent definition; register it with WithSubAgents.
+func NewSubAgent(name, description string, opts ...SubAgentOption) SubAgent {
+	return core.NewSubAgent(name, description, opts...)
+}
+
+// WithSubAgentClient gives the sub-agent its own client (e.g. a different
+// provider) instead of inheriting the parent agent's client.
+func WithSubAgentClient(client *Client) SubAgentOption { return core.WithSubAgentClient(client) }
+
+// WithSubAgentModel overrides the sub-agent's model while reusing the parent
+// agent's client. Ignored when WithSubAgentClient supplies a custom client.
+func WithSubAgentModel(model string) SubAgentOption { return core.WithSubAgentModel(model) }
+
+// WithSubAgentPrompt sets the sub-agent's system prompt.
+func WithSubAgentPrompt(prompt string) SubAgentOption { return core.WithSubAgentPrompt(prompt) }
+
+// WithSubAgentTools registers tools available inside the sub-agent loop.
+func WithSubAgentTools(tools ...Tool) SubAgentOption { return core.WithSubAgentTools(tools...) }
+
+// WithSubAgentSkills registers skills available inside the sub-agent loop.
+func WithSubAgentSkills(skills ...Skill) SubAgentOption { return core.WithSubAgentSkills(skills...) }
+
+// WithSubAgentThinking configures thinking/reasoning for the sub-agent.
+func WithSubAgentThinking(t Thinking) SubAgentOption { return core.WithSubAgentThinking(t) }
+
+// WithSubAgentMaxTurns caps the number of model calls per sub-agent run.
+func WithSubAgentMaxTurns(n int) SubAgentOption { return core.WithSubAgentMaxTurns(n) }
+
 // ── Providers ──────────────────────────────────────────────────────────────
 
 type (
@@ -344,6 +387,12 @@ func WithTools(tools ...Tool) AgentOption { return core.WithTools(tools...) }
 // WithSkills registers skills for progressive disclosure.
 func WithSkills(skills ...Skill) AgentOption { return core.WithSkills(skills...) }
 
+// WithSubAgents registers sub-agent definitions. They are not exposed as
+// tools by default: the system prompt only lists name/description, and the
+// model must call the built-in load_agent tool to register a call_<name>
+// tool before delegating to one.
+func WithSubAgents(subs ...SubAgent) AgentOption { return core.WithSubAgents(subs...) }
+
 // WithThinking configures thinking/reasoning for the agent.
 func WithThinking(t Thinking) AgentOption { return core.WithThinking(t) }
 
@@ -366,6 +415,12 @@ func WithSkillToolName(name string) AgentOption { return core.WithSkillToolName(
 
 // WithSkillToolDisabled removes the built-in skill-loading tool.
 func WithSkillToolDisabled() AgentOption { return core.WithSkillToolDisabled() }
+
+// WithSubAgentToolName renames the built-in sub-agent-loading tool.
+func WithSubAgentToolName(name string) AgentOption { return core.WithSubAgentToolName(name) }
+
+// WithSubAgentToolDisabled removes the built-in sub-agent-loading tool.
+func WithSubAgentToolDisabled() AgentOption { return core.WithSubAgentToolDisabled() }
 
 // Approve lets the tool call execute as requested.
 func Approve() ToolDecision { return core.Approve() }
