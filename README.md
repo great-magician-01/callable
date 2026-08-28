@@ -23,6 +23,7 @@
 - **三种 wire 格式**：OpenAI Chat Completions、OpenAI Responses、Anthropic Messages，切换只改一行构造代码，消息历史跨 provider 通用
 - **Agent loop**：模型 → 工具执行 → 模型 → … 自动循环直到最终回答；支持审批钩子（放行/否决/改参）、并行工具执行、max turns 保护
 - **工具调用**：参数 struct 反射生成 JSON Schema（`invopop/jsonschema`），handler 即执行体；工具错误自动回传给模型而不是中断循环
+- **联网搜索**：优先使用 provider 内置的服务端搜索（Kimi、GLM/Z.AI、Qwen、Anthropic、OpenAI Responses，按 BaseURL 自动嗅探），无内置时可用 Tavily 回退工具（`WithTavilyAPIKey`）；`WithWebSearch` 显式开关
 - **多轮对话**：内置 `Session` 维护历史，thinking 块 / 工具轨迹完整保留并正确回传（Anthropic signature、Responses reasoning item、DeepSeek/GLM reasoning_content）
 - **上下文管理**：Session 跟踪上下文窗口占用（`Usage.ContextTokens` 按 provider 归一化），支持阈值触发自动压缩（`WithAutoCompact`）与手动 `Compact` 压缩历史
 - **流式**：统一的 `ThinkingDelta / TextDelta / ToolCallDelta / ToolResult / Turn*` 事件流，agent loop 全程可见
@@ -305,7 +306,7 @@ if errors.Is(err, context.DeadlineExceeded) {
 
 ## 更多示例
 
-见 [`examples/`](./examples)：quickstart、tools（agent loop）、thinking（思考+多轮会话）、vision（图片）、skills（渐进披露）、subagents（子代理委派）、compact（上下文压缩）、deepseek（真实 API 全场景）。
+见 [`examples/`](./examples)：quickstart、tools（agent loop）、thinking（思考+多轮会话）、vision（图片）、skills（渐进披露）、subagents（子代理委派）、compact（上下文压缩）、websearch（联网搜索）、deepseek（真实 API 全场景）。
 
 ## 文档
 
@@ -316,6 +317,7 @@ if errors.Is(err, context.DeadlineExceeded) {
 - [Agent 循环](./docs/zh/agent.md)：Run/RunStream、审批钩子、并行工具、max turns
 - [多轮会话](./docs/zh/session.md)：Session、历史持久化与恢复
 - [工具](./docs/zh/tools.md)：NewTool/NewRawTool、JSON Schema 生成、错误回传
+- [联网搜索](./docs/zh/web-search.md)：内置搜索自动嗅探、Kimi 回显协议、Tavily 回退
 - [流式事件](./docs/zh/streaming.md)：事件类型一览、事件序列、Usage
 - [思考模式](./docs/zh/thinking.md)：Effort 映射、各家端点的坑
 - [Skill 渐进披露](./docs/zh/skills.md)：read_skill、读取钩子

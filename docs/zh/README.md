@@ -11,6 +11,7 @@
 - [Agent 循环](agent.md) — Run/RunStream、审批钩子、并行工具执行、max turns、配置层级
 - [多轮会话](session.md) — Session、Ask/AskStream、上下文窗口与自动/手动压缩、历史持久化与恢复
 - [工具](tools.md) — NewTool 泛型构造、JSON Schema 生成、NewRawTool、错误回传
+- [联网搜索](web-search.md) — provider 内置搜索自动嗅探、Kimi 回显协议、Tavily 回退
 - [流式事件](streaming.md) — 事件类型一览、典型事件序列、Usage 统计
 - [思考模式](thinking.md) — Effort 档位、各 provider 映射表、国产端点的坑
 - [Skill 渐进披露](skills.md) — read_skill 内置工具、读取钩子、自定义加载工具

@@ -16,6 +16,10 @@ type Request struct {
 	MaxTokens int
 	// Temperature is sampling temperature. nil uses the client default.
 	Temperature *float64
+	// WebSearch asks the provider to enable its built-in server-side web
+	// search when the endpoint has one (see WithWebSearch). Providers
+	// without built-in search ignore it.
+	WebSearch bool
 	// Extra holds arbitrary top-level fields merged into the provider request
 	// body, as an escape hatch for provider-specific parameters.
 	Extra map[string]any
