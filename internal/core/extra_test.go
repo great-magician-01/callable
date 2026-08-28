@@ -26,7 +26,8 @@ func TestAntCreatePath(t *testing.T) {
 	if !ok || tp.Signature != "sigX" {
 		t.Errorf("thinking part = %+v", resp.Message.Parts[0])
 	}
-	if resp.Usage.InputTokens != 5 || resp.Usage.OutputTokens != 7 {
+	if resp.Usage.InputTokens != 5 || resp.Usage.OutputTokens != 7 ||
+		resp.Usage.ContextTokens != 5 {
 		t.Errorf("usage = %+v", resp.Usage)
 	}
 }
@@ -53,7 +54,7 @@ func TestResponsesCreatePath(t *testing.T) {
 	if resp.Message.ProviderExtra(client.Provider().Name()) == nil {
 		t.Errorf("reasoning item not preserved for replay")
 	}
-	if resp.Usage.ReasoningTokens != 2 {
+	if resp.Usage.ReasoningTokens != 2 || resp.Usage.ContextTokens != 5 {
 		t.Errorf("usage = %+v", resp.Usage)
 	}
 }

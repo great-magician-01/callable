@@ -197,7 +197,8 @@ func TestAntParseResponse(t *testing.T) {
 		t.Errorf("thinking part = %+v", resp.Message.Parts[0])
 	}
 	if resp.Usage.InputTokens != 12 || resp.Usage.OutputTokens != 34 ||
-		resp.Usage.CacheReadTokens != 5 || resp.Usage.CacheWriteTokens != 2 {
+		resp.Usage.CacheReadTokens != 5 || resp.Usage.CacheWriteTokens != 2 ||
+		resp.Usage.ContextTokens != 19 { // 12 + 5 + 2 (Anthropic input excludes cache)
 		t.Errorf("usage = %+v", resp.Usage)
 	}
 }
@@ -267,7 +268,8 @@ func TestAntStreamAccumulation(t *testing.T) {
 	if resp.StopReason != StopReasonToolCalls {
 		t.Errorf("stop reason = %v", resp.StopReason)
 	}
-	if resp.Usage.InputTokens != 10 || resp.Usage.OutputTokens != 42 {
+	if resp.Usage.InputTokens != 10 || resp.Usage.OutputTokens != 42 ||
+		resp.Usage.ContextTokens != 10 {
 		t.Errorf("usage = %+v", resp.Usage)
 	}
 	// Signature must survive for the next turn.
@@ -340,8 +342,11 @@ func TestAntAgentFlow(t *testing.T) {
 	if thinkingDeltas != 1 {
 		t.Errorf("thinking deltas = %d", thinkingDeltas)
 	}
-	if result.Usage.InputTokens != 40 { // accumulated across turns
+	if result.Usage.InputTokens != 40 || result.Usage.ContextTokens != 40 { // accumulated across turns
 		t.Errorf("usage = %+v", result.Usage)
+	}
+	if result.LastTurnUsage.InputTokens != 30 || result.LastTurnUsage.ContextTokens != 30 {
+		t.Errorf("last turn usage = %+v", result.LastTurnUsage)
 	}
 
 	// Second request: assistant thinking block with signature, tool_use, and

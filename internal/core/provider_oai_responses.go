@@ -260,6 +260,9 @@ func (u *respUsageBody) toUsage() Usage {
 	usage := Usage{
 		InputTokens:  u.InputTokens,
 		OutputTokens: u.OutputTokens,
+		// InputTokens already includes cached tokens, so it is the full
+		// context footprint.
+		ContextTokens: u.InputTokens,
 	}
 	if u.InputTokensDetails != nil {
 		usage.CacheReadTokens = u.InputTokensDetails.CachedTokens

@@ -55,6 +55,7 @@ func (s *Session) AskStream(ctx context.Context, onEvent func(Event), messages .
 | `ToolResultEvent` | `Call ToolCall` `Result ToolResult` | A tool finished executing. `Result.Content` is what goes back to the model; `Result.IsError` marks failure (errors are fed back to the model as tool results, the loop continues). Also fires for hook-denied or cancellation-skipped calls (`IsError=true`) |
 | `AgentDoneEvent` | `Result *AgentResult` | The agent loop finished normally (model produced a final answer); `Result` is the same object as the return value. **Not fired on max turns, errors or cancellation** — check the return value / error for those |
 | `SubAgentEvent` | `SubAgent string` `Event Event` | Wraps an event from inside a delegated sub-agent's loop; `SubAgent` is the sub-agent's name. Only produced when the parent agent enables `WithSubAgentEvents(true)`, see [Sub-Agents](subagents.md) |
+| `SessionCompactEvent` | `Summary string` `TokensBefore int` | A session auto-compacted its history at the end of a run (only via `AskStream`, on sessions with `WithAutoCompact` enabled). `Summary` is the generated summary, `TokensBefore` the context tokens before compaction; see [Sessions](session.md) |
 
 ## Typical event sequences
 

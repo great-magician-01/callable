@@ -149,6 +149,9 @@ type (
 	// SubAgentEvent wraps an event emitted inside a delegated sub-agent's
 	// loop; only produced when WithSubAgentEvents is enabled.
 	SubAgentEvent = core.SubAgentEvent
+	// SessionCompactEvent is emitted after a session auto-compacts its
+	// history.
+	SessionCompactEvent = core.SessionCompactEvent
 )
 
 // ── Thinking / reasoning ───────────────────────────────────────────────────
@@ -478,3 +481,34 @@ func Deny(reason string) ToolDecision { return core.Deny(reason) }
 
 // ReplaceArgs approves the tool call with rewritten JSON arguments.
 func ReplaceArgs(argsJSON string) ToolDecision { return core.ReplaceArgs(argsJSON) }
+
+// ── Session (context window & compaction) ───────────────────────────────────
+
+type (
+	// SessionOption configures a Session.
+	SessionOption = core.SessionOption
+)
+
+const (
+	// DefaultContextWindow is the default context window size (in tokens) a
+	// session measures context fill against.
+	DefaultContextWindow = core.DefaultContextWindow
+	// DefaultAutoCompactThreshold is the default context fill ratio at which
+	// an auto-compacting session compacts its history.
+	DefaultAutoCompactThreshold = core.DefaultAutoCompactThreshold
+)
+
+// WithContextWindow sets the context window size (in tokens) the session
+// measures context fill against. Default DefaultContextWindow.
+func WithContextWindow(tokens int) SessionOption { return core.WithContextWindow(tokens) }
+
+// WithAutoCompact enables automatic history compaction once the context fill
+// ratio reaches WithAutoCompactThreshold after an Ask. Default off. It never
+// applies to delegated sub-agents, which run without a session.
+func WithAutoCompact(enabled bool) SessionOption { return core.WithAutoCompact(enabled) }
+
+// WithAutoCompactThreshold sets the context fill ratio (0, 1] at which
+// auto-compact triggers. Default DefaultAutoCompactThreshold.
+func WithAutoCompactThreshold(ratio float64) SessionOption {
+	return core.WithAutoCompactThreshold(ratio)
+}

@@ -303,6 +303,9 @@ func (u *oaiUsage) toUsage() Usage {
 	usage := Usage{
 		InputTokens:  u.PromptTokens,
 		OutputTokens: u.CompletionTokens,
+		// PromptTokens already includes cached tokens, so it is the full
+		// context footprint.
+		ContextTokens: u.PromptTokens,
 	}
 	if u.PromptTokensDetails != nil {
 		usage.CacheReadTokens = u.PromptTokensDetails.CachedTokens

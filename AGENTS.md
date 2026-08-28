@@ -37,6 +37,7 @@ internal/core/            # ALL implementation and tests live here (~7.6k lines)
   provider_anthropic.go     # Anthropic Messages adapter.
   endpoints.go              # Well-known base-URL constants + Compat dialect auto-detection.
   client.go / agent.go      # Client (Create/Stream, retries, defaults) and Agent loop + Session.
+  compact.go                # Session context-window options + auto/manual history compaction.
   errors.go                 # APIError / MaxTurnsError.
   *_test.go                 # All tests (no tests exist outside this package).
 examples/                 # Runnable examples: quickstart, tools, thinking, vision, skills,

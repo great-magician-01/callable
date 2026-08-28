@@ -203,6 +203,10 @@ type AgentResult struct {
 	Messages []Message
 	// Usage accumulates token consumption across all turns.
 	Usage Usage
+	// LastTurnUsage is the token usage of the final model turn. Its
+	// ContextTokens reflects how full the context window was on that turn;
+	// sessions use it to track context fill.
+	LastTurnUsage Usage
 	// Turns is the number of model calls performed.
 	Turns int
 	// StopReason is AgentCompleted or AgentMaxTurns.
@@ -269,12 +273,14 @@ func (a *Agent) RunStream(ctx context.Context, onEvent eventSink, messages ...Me
 				// Messages stays a valid, replayable trajectory.
 				result.Turns = turn
 				result.Usage.Add(resp.Usage)
+				result.LastTurnUsage = resp.Usage
 				result.FinalText = resp.Text
 			}
 			return result, err
 		}
 		result.Turns = turn
 		result.Usage.Add(resp.Usage)
+		result.LastTurnUsage = resp.Usage
 		conv = append(conv, resp.Message)
 		result.Messages = append(result.Messages, resp.Message)
 
@@ -441,11 +447,25 @@ func emit(onEvent eventSink, ev Event) {
 type Session struct {
 	agent   *Agent
 	history []Message
+
+	contextWindow        int
+	autoCompact          bool
+	autoCompactThreshold float64
+	contextUsage         Usage // last turn's usage; ContextTokens is the current fill
 }
 
-// Session creates a new conversation session.
-func (a *Agent) Session() *Session {
-	return &Session{agent: a}
+// Session creates a new conversation session, configured by opts (see
+// WithContextWindow, WithAutoCompact, WithAutoCompactThreshold).
+func (a *Agent) Session(opts ...SessionOption) *Session {
+	s := &Session{
+		agent:                a,
+		contextWindow:        DefaultContextWindow,
+		autoCompactThreshold: DefaultAutoCompactThreshold,
+	}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 // Ask appends messages to the conversation and runs the agent loop.
@@ -466,8 +486,35 @@ func (s *Session) ask(ctx context.Context, onEvent eventSink, messages []Message
 	// replay.
 	if err == nil {
 		s.history = result.Messages
+		s.contextUsage = result.LastTurnUsage
+		if s.autoCompact && s.ContextFillRatio() >= s.autoCompactThreshold {
+			// Best-effort: a failed compaction leaves the history untouched
+			// and does not fail the Ask.
+			before := s.contextUsage.ContextTokens
+			if summary, cerr := s.Compact(ctx); cerr == nil {
+				emit(onEvent, SessionCompactEvent{Summary: summary, TokensBefore: before})
+			}
+		}
 	}
 	return result, err
+}
+
+// ContextWindow returns the configured context window size in tokens.
+func (s *Session) ContextWindow() int { return s.contextWindow }
+
+// ContextUsage returns the usage of the most recent Ask's final model turn.
+// Its ContextTokens is how many tokens the conversation occupied in the
+// context window at that point. The zero value is returned before the first
+// Ask, after a failed Ask, and right after a compaction or Reset.
+func (s *Session) ContextUsage() Usage { return s.contextUsage }
+
+// ContextFillRatio reports how full the context window was after the most
+// recent Ask: ContextUsage().ContextTokens / ContextWindow(), in [0, 1].
+func (s *Session) ContextFillRatio() float64 {
+	if s.contextWindow <= 0 {
+		return 0
+	}
+	return float64(s.contextUsage.ContextTokens) / float64(s.contextWindow)
 }
 
 // History returns the conversation so far (without the system prompt).
@@ -483,4 +530,5 @@ func (s *Session) SetHistory(messages []Message) {
 // Reset clears the conversation.
 func (s *Session) Reset() {
 	s.history = nil
+	s.contextUsage = Usage{}
 }

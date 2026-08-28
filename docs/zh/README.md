@@ -9,7 +9,7 @@
 - [快速开始](getting-started.md) — 安装、创建 Client 与三种 Provider、内置端点常量、Compat 方言嗅探
 - [消息模型](messages.md) — Message/Part 统一模型、构造器、历史回传保真、JSON 持久化
 - [Agent 循环](agent.md) — Run/RunStream、审批钩子、并行工具执行、max turns、配置层级
-- [多轮会话](session.md) — Session、Ask/AskStream、历史持久化与恢复
+- [多轮会话](session.md) — Session、Ask/AskStream、上下文窗口与自动/手动压缩、历史持久化与恢复
 - [工具](tools.md) — NewTool 泛型构造、JSON Schema 生成、NewRawTool、错误回传
 - [流式事件](streaming.md) — 事件类型一览、典型事件序列、Usage 统计
 - [思考模式](thinking.md) — Effort 档位、各 provider 映射表、国产端点的坑

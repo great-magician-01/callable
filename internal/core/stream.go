@@ -105,5 +105,16 @@ type SubAgentEvent struct {
 
 func (SubAgentEvent) event() {}
 
+// SessionCompactEvent is emitted to the AskStream sink after a session
+// auto-compacts its history at the end of a run. Summary is the generated
+// conversation summary; TokensBefore is how many context tokens the
+// conversation occupied before compaction.
+type SessionCompactEvent struct {
+	Summary      string
+	TokensBefore int
+}
+
+func (SessionCompactEvent) event() {}
+
 // eventSink is the callback signature used for streaming.
 type eventSink func(Event)
