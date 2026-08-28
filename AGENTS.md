@@ -39,9 +39,10 @@ internal/core/            # ALL implementation and tests live here (~7.6k lines)
   client.go / agent.go      # Client (Create/Stream, retries, defaults) and Agent loop + Session.
   compact.go                # Session context-window options + auto/manual history compaction.
   errors.go                 # APIError / MaxTurnsError.
+  websearch.go              # Web search: provider built-in detection + Kimi echo stub + Tavily fallback tool.
   *_test.go                 # All tests (no tests exist outside this package).
 examples/                 # Runnable examples: quickstart, tools, thinking, vision, skills,
-                          # subagents, compact, deepseek. Each is a main package needing real API keys.
+                          # subagents, compact, websearch, deepseek. Each is a main package needing real API keys.
 docs/zh/ , docs/en/       # Per-feature user docs, fully bilingual (Chinese + English).
 docs/PLAN.md              # Original design doc (Chinese); useful for design rationale, but
                           # the code is the source of truth where they diverge.

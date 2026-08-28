@@ -11,6 +11,7 @@ Detailed usage documentation organized by feature. All API names and signatures 
 - [Agent Loop](agent.md) — Run/RunStream, approval hooks, parallel tool execution, max turns, config layering
 - [Sessions](session.md) — Session, Ask/AskStream, context window with auto/manual compaction, history persistence and restore
 - [Tools](tools.md) — the NewTool generic constructor, JSON Schema generation, NewRawTool, error feedback
+- [Web Search](web-search.md) — built-in provider search auto-detection, the Kimi echo protocol, the Tavily fallback
 - [Streaming Events](streaming.md) — event reference, typical event sequences, Usage accounting
 - [Thinking Mode](thinking.md) — Effort levels, per-provider mapping, pitfalls of Chinese-compatible endpoints
 - [Skills](skills.md) — progressive disclosure, the read_skill tool, read hooks, custom loader tools

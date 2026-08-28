@@ -64,6 +64,10 @@ type Agent struct {
 	subAgentToolDisabled bool
 	subAgentEvents       bool
 
+	webSearch        *bool  // nil = auto (on iff built-in or Tavily configured)
+	tavilyKey        string // Tavily fallback key
+	webSearchBuiltin bool   // resolved: provider has server-side search
+
 	tools *toolSet // user tools + built-ins + dynamically loaded call_<subagent>
 	subs  *subAgentRegistry
 }
@@ -190,6 +194,7 @@ func NewAgent(client *Client, opts ...AgentOption) *Agent {
 	if len(a.subAgents) > 0 && !a.subAgentToolDisabled {
 		a.tools.add(newSubAgentLoadTool(a.subAgentToolName, a.subs))
 	}
+	a.resolveWebSearch()
 	return a
 }
 
@@ -256,6 +261,7 @@ func (a *Agent) RunStream(ctx context.Context, onEvent eventSink, messages ...Me
 		if a.thinking != nil {
 			req.Thinking = a.thinking
 		}
+		req.WebSearch = a.webSearchBuiltin
 
 		var (
 			resp *Response

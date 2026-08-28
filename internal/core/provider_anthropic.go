@@ -55,7 +55,7 @@ type antPayload struct {
 	MaxTokens   int          `json:"max_tokens"`
 	System      string       `json:"system,omitempty"`
 	Messages    []antMessage `json:"messages"`
-	Tools       []antTool    `json:"tools,omitempty"`
+	Tools       []any        `json:"tools,omitempty"` // antTool or a server tool entry
 	Thinking    *antThinking `json:"thinking,omitempty"`
 	Temperature *float64     `json:"temperature,omitempty"`
 	Stream      bool         `json:"stream,omitempty"`
@@ -137,6 +137,15 @@ func (p *AnthropicProvider) buildPayload(req *Request, stream bool) ([]byte, err
 			Name:        def.Name,
 			Description: def.Description,
 			InputSchema: schema,
+		})
+	}
+	if req.WebSearch && p.supportsWebSearch() == webSearchServer {
+		// Anthropic server-side web search; the server_tool_use and
+		// web_search_tool_result blocks it emits are not mapped into the
+		// unified message, only the final text is.
+		payload.Tools = append(payload.Tools, map[string]any{
+			"type": "web_search_20250305",
+			"name": DefaultWebSearchToolName,
 		})
 	}
 

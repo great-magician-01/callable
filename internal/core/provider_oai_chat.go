@@ -40,7 +40,7 @@ func (p *OpenAIProvider) Name() string { return "openai" }
 type oaiChatPayload struct {
 	Model               string             `json:"model"`
 	Messages            []oaiChatMessage   `json:"messages"`
-	Tools               []oaiChatTool      `json:"tools,omitempty"`
+	Tools               []any              `json:"tools,omitempty"` // oaiChatTool or a built-in tool entry
 	ToolChoice          string             `json:"tool_choice,omitempty"`
 	MaxTokens           *int               `json:"max_tokens,omitempty"`
 	MaxCompletionTokens *int               `json:"max_completion_tokens,omitempty"`
@@ -49,6 +49,7 @@ type oaiChatPayload struct {
 	Thinking            *oaiCompatThinking `json:"thinking,omitempty"`        // GLM / Ark / DeepSeek
 	EnableThinking      *bool              `json:"enable_thinking,omitempty"` // Qwen
 	ThinkingBudget      *int               `json:"thinking_budget,omitempty"` // Qwen
+	EnableSearch        bool               `json:"enable_search,omitempty"`   // Qwen built-in web search
 	Stream              bool               `json:"stream,omitempty"`
 	StreamOptions       *oaiStreamOptions  `json:"stream_options,omitempty"`
 }
@@ -114,8 +115,19 @@ func (p *OpenAIProvider) buildPayload(req *Request, stream bool) ([]byte, error)
 	}
 	payload := oaiChatPayload{Model: req.Model, Messages: messages}
 
+	kimiBuiltin := req.WebSearch && p.supportsWebSearch() == webSearchEcho
 	for _, t := range req.Tools {
 		def := t.Definition()
+		if kimiBuiltin && def.Name == kimiWebSearchToolName {
+			// Kimi's built-in search is advertised as builtin_function, not
+			// as a plain function tool; the agent echoes the call arguments
+			// back so the server performs the search on the next request.
+			payload.Tools = append(payload.Tools, map[string]any{
+				"type":     "builtin_function",
+				"function": map[string]any{"name": kimiWebSearchToolName},
+			})
+			continue
+		}
 		payload.Tools = append(payload.Tools, oaiChatTool{
 			Type: "function",
 			Function: oaiChatFunctionDef{
@@ -124,6 +136,22 @@ func (p *OpenAIProvider) buildPayload(req *Request, stream bool) ([]byte, error)
 				Parameters:  def.Parameters,
 			},
 		})
+	}
+	if req.WebSearch {
+		switch {
+		case p.compat&CompatGLM != 0:
+			// GLM / Z.AI server-side search.
+			payload.Tools = append(payload.Tools, map[string]any{
+				"type": "web_search",
+				"web_search": map[string]any{
+					"enable":        true,
+					"search_result": true,
+				},
+			})
+		case p.compat&CompatQwen != 0:
+			// Qwen server-side search is a top-level switch, not a tool entry.
+			payload.EnableSearch = true
+		}
 	}
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = "auto"

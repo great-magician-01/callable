@@ -40,7 +40,7 @@ type respPayload struct {
 	Model           string         `json:"model"`
 	Instructions    string         `json:"instructions,omitempty"`
 	Input           []any          `json:"input"`
-	Tools           []respToolDef  `json:"tools,omitempty"`
+	Tools           []any          `json:"tools,omitempty"` // respToolDef or a hosted tool entry
 	Reasoning       *respReasoning `json:"reasoning,omitempty"`
 	MaxOutputTokens *int           `json:"max_output_tokens,omitempty"`
 	Temperature     *float64       `json:"temperature,omitempty"`
@@ -131,6 +131,12 @@ func (p *OpenAIResponsesProvider) buildPayload(req *Request, stream bool) ([]byt
 			Description: def.Description,
 			Parameters:  def.Parameters,
 		})
+	}
+	if req.WebSearch && p.supportsWebSearch() == webSearchServer {
+		// Hosted web search tool; the server executes it and returns
+		// web_search_call items, which round-trip verbatim via the raw
+		// output replay.
+		payload.Tools = append(payload.Tools, map[string]any{"type": "web_search"})
 	}
 	thinkingOn := req.Thinking != nil && req.Thinking.Enabled()
 	if thinkingOn {

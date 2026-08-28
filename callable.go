@@ -211,6 +211,27 @@ func TextResult(content string) ToolResult { return core.TextResult(content) }
 // ErrorResult wraps an error as a failed tool result.
 func ErrorResult(err error) ToolResult { return core.ErrorResult(err) }
 
+// ── Web search ─────────────────────────────────────────────────────────────
+
+// DefaultWebSearchToolName is the name of the Tavily-backed fallback
+// web-search tool.
+const DefaultWebSearchToolName = core.DefaultWebSearchToolName
+
+// WithWebSearch explicitly enables or disables the web-search tool.
+//
+// The default (option not given) is "auto": web search is enabled when the
+// provider endpoint has built-in server-side search (Kimi, GLM/Z.AI, Qwen,
+// api.anthropic.com, OpenAI Responses) or when a Tavily API key is configured
+// via WithTavilyAPIKey, and disabled otherwise. A provider's built-in search
+// is always preferred over the Tavily fallback. Enabling explicitly with no
+// built-in support and no Tavily key exposes no tool.
+func WithWebSearch(enabled bool) AgentOption { return core.WithWebSearch(enabled) }
+
+// WithTavilyAPIKey configures a Tavily API key used for the fallback
+// web-search tool (https://tavily.com). It is only used when the provider
+// endpoint has no built-in web search.
+func WithTavilyAPIKey(key string) AgentOption { return core.WithTavilyAPIKey(key) }
+
 // ── Skills (progressive disclosure) ────────────────────────────────────────
 
 type (
