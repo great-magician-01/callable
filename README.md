@@ -303,7 +303,7 @@ if errors.Is(err, context.DeadlineExceeded) {
 
 ## 更多示例
 
-见 [`examples/`](./examples)：quickstart、tools（agent loop）、thinking（思考+多轮会话）、vision（图片）、skills（渐进披露）、subagents（子代理委派）。
+见 [`examples/`](./examples)：quickstart、tools（agent loop）、thinking（思考+多轮会话）、vision（图片）、skills（渐进披露）、subagents（子代理委派）、compact（上下文压缩）、deepseek（真实 API 全场景）。
 
 ## 文档
 

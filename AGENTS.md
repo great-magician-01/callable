@@ -41,7 +41,7 @@ internal/core/            # ALL implementation and tests live here (~7.6k lines)
   errors.go                 # APIError / MaxTurnsError.
   *_test.go                 # All tests (no tests exist outside this package).
 examples/                 # Runnable examples: quickstart, tools, thinking, vision, skills,
-                          # subagents, deepseek. Each is a main package needing real API keys.
+                          # subagents, compact, deepseek. Each is a main package needing real API keys.
 docs/zh/ , docs/en/       # Per-feature user docs, fully bilingual (Chinese + English).
 docs/PLAN.md              # Original design doc (Chinese); useful for design rationale, but
                           # the code is the source of truth where they diverge.

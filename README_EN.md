@@ -306,7 +306,7 @@ Note: a running tool function receives the same ctx — tool implementations sho
 
 ## More Examples
 
-See [`examples/`](./examples): quickstart, tools (agent loop), thinking (thinking + multi-turn session), vision (images), skills (progressive disclosure), subagents (sub-agent delegation).
+See [`examples/`](./examples): quickstart, tools (agent loop), thinking (thinking + multi-turn session), vision (images), skills (progressive disclosure), subagents (sub-agent delegation), compact (context compaction), deepseek (real-API scenarios).
 
 ## Documentation
 
