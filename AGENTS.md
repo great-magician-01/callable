@@ -9,7 +9,7 @@ Guidance for AI coding agents working on this repository. The reader is assumed 
 - Module: `github.com/great-magician-01/callable` (Go library, not an application; there is no `main` package outside `examples/`).
 - Go version: `go 1.21` (see `go.mod`; the older `docs/PLAN.md` design doc mentions a different version — `go.mod` is authoritative).
 - It speaks three wire formats behind one provider-agnostic message model:
-  - OpenAI Chat Completions (including OpenAI-compatible endpoints: GLM, DeepSeek, Qwen, Z.AI, Volcano Ark, ...)
+  - OpenAI Chat Completions (including OpenAI-compatible endpoints: GLM, DeepSeek, Qwen, Z.AI, Volcano Ark, Kimi/Moonshot, ...)
   - OpenAI Responses
   - Anthropic Messages (including Anthropic-compatible third-party endpoints)
 - On top of the providers sits an `Agent` that runs the full tool-calling loop automatically (model → tool execution → model → ... until a final answer), with streaming events, thinking/reasoning support, skills (progressive disclosure via a built-in `read_skill` tool), sub-agent delegation (built-in `load_agent` tool registers `call_<name>`), multi-turn `Session`, and image input.

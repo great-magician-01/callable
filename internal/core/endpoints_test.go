@@ -23,6 +23,8 @@ func TestEndpointURLs(t *testing.T) {
 		{"ZAIAnthropicURL", ZAIAnthropicURL, "https://api.z.ai/api/anthropic"},
 		{"QwenURL", QwenURL, "https://dashscope.aliyuncs.com/compatible-mode/v1"},
 		{"ArkURL", ArkURL, "https://ark.cn-beijing.volces.com/api/v3"},
+		{"KimiURL", KimiURL, "https://api.moonshot.cn/v1"},
+		{"KimiAnthropicURL", KimiAnthropicURL, "https://api.moonshot.cn/anthropic"},
 	}
 	for _, c := range cases {
 		if c.got != c.want {
@@ -54,6 +56,8 @@ func TestEndpointCompatDetection(t *testing.T) {
 		{"ZAIAnthropicURL", ZAIAnthropicURL, CompatGLM},
 		{"QwenURL", QwenURL, CompatQwen},
 		{"ArkURL", ArkURL, CompatArk},
+		{"KimiURL", KimiURL, CompatNone},
+		{"KimiAnthropicURL", KimiAnthropicURL, CompatNone},
 	}
 	for _, c := range cases {
 		if got := detectCompat(c.base); got != c.want {

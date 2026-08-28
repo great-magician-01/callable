@@ -79,6 +79,8 @@ callable.NewAnthropicProvider(apiKey, callable.AnthropicURL)     // Anthropic
 | `callable.ZAIAnthropicURL` | `https://api.z.ai/api/anthropic` | `NewAnthropicProvider` |
 | `callable.QwenURL` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `NewOpenAIProvider` |
 | `callable.ArkURL` | `https://ark.cn-beijing.volces.com/api/v3` | `NewOpenAIProvider` |
+| `callable.KimiURL` | `https://api.moonshot.cn/v1` | `NewOpenAIProvider` |
+| `callable.KimiAnthropicURL` | `https://api.moonshot.cn/anthropic` | `NewAnthropicProvider` |
 
 ```go
 callable.NewAnthropicProvider(key, callable.DeepSeekAnthropicURL) // DeepSeek 的 Anthropic 兼容端点

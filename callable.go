@@ -324,6 +324,10 @@ const (
 	QwenURL = core.QwenURL
 	// ArkURL is Volcano Ark's OpenAI-compatible endpoint.
 	ArkURL = core.ArkURL
+	// KimiURL is Moonshot AI's (Kimi) OpenAI-compatible endpoint for the
+	// China platform. The international platform mirrors it at
+	// https://api.moonshot.ai/v1.
+	KimiURL = core.KimiURL
 
 	// DeepSeekAnthropicURL is DeepSeek's Anthropic-compatible endpoint.
 	DeepSeekAnthropicURL = core.DeepSeekAnthropicURL
@@ -332,6 +336,10 @@ const (
 	GLMAnthropicURL = core.GLMAnthropicURL
 	// ZAIAnthropicURL is Z.AI's Anthropic-compatible endpoint.
 	ZAIAnthropicURL = core.ZAIAnthropicURL
+	// KimiAnthropicURL is Moonshot AI's (Kimi) Anthropic-compatible endpoint
+	// for the China platform. The international platform mirrors it at
+	// https://api.moonshot.ai/anthropic.
+	KimiAnthropicURL = core.KimiAnthropicURL
 )
 
 // NewOpenAIProvider creates an OpenAI Chat Completions provider for the given
