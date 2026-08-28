@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/great-magician-01/callable/compare/v0.6.0...v0.7.0) (2026-08-28)
+
+
+### Features
+
+* add session context management and auto-compaction features ([3bfcf80](https://github.com/great-magician-01/callable/commit/3bfcf8055388803a00b5bbc596fd6f9e48c1bf51))
+
 ## [0.6.0](https://github.com/great-magician-01/callable/compare/v0.5.0...v0.6.0) (2026-08-27)
 
 
