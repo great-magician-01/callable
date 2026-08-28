@@ -28,6 +28,10 @@ const (
 	QwenURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	// ArkURL is Volcano Ark's OpenAI-compatible endpoint.
 	ArkURL = "https://ark.cn-beijing.volces.com/api/v3"
+	// KimiURL is Moonshot AI's (Kimi) OpenAI-compatible endpoint for the
+	// China platform. The international platform mirrors it at
+	// https://api.moonshot.ai/v1.
+	KimiURL = "https://api.moonshot.cn/v1"
 
 	// DeepSeekAnthropicURL is DeepSeek's Anthropic-compatible endpoint.
 	DeepSeekAnthropicURL = "https://api.deepseek.com/anthropic"
@@ -36,4 +40,8 @@ const (
 	GLMAnthropicURL = "https://open.bigmodel.cn/api/anthropic"
 	// ZAIAnthropicURL is Z.AI's Anthropic-compatible endpoint.
 	ZAIAnthropicURL = "https://api.z.ai/api/anthropic"
+	// KimiAnthropicURL is Moonshot AI's (Kimi) Anthropic-compatible endpoint
+	// for the China platform. The international platform mirrors it at
+	// https://api.moonshot.ai/anthropic.
+	KimiAnthropicURL = "https://api.moonshot.cn/anthropic"
 )

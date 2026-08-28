@@ -251,6 +251,8 @@ callable.NewOpenAIProvider(key, url, callable.WithCompat(callable.CompatNone))
 | `ZAIAnthropicURL` | `https://api.z.ai/api/anthropic` | Anthropic |
 | `QwenURL` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenAI |
 | `ArkURL` | `https://ark.cn-beijing.volces.com/api/v3` | OpenAI |
+| `KimiURL` | `https://api.moonshot.cn/v1` | OpenAI |
+| `KimiAnthropicURL` | `https://api.moonshot.cn/anthropic` | Anthropic |
 
 ```go
 callable.NewAnthropicProvider(key, callable.DeepSeekAnthropicURL) // DeepSeek 的 Anthropic 兼容端点
