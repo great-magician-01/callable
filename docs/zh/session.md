@@ -21,14 +21,18 @@ sess.Reset()                    // 清空历史
 
 | 方法 | 签名 | 说明 |
 |---|---|---|
-| `Agent.Session` | `func (a *Agent) Session() *Session` | 在该 agent 上创建新会话，历史为空。一个 agent 可同时挂多个独立会话 |
+| `Agent.Session` | `func (a *Agent) Session(opts ...SessionOption) *Session` | 在该 agent 上创建新会话，历史为空。一个 agent 可同时挂多个独立会话；`opts` 见下文「上下文窗口与历史压缩」 |
 | `Session.Ask` | `func (s *Session) Ask(ctx context.Context, messages ...Message) (*AgentResult, error)` | 把消息追加到历史尾部并运行 agent loop（非流式），等价于 `agent.Run`，只是输入自动带上历史 |
 | `Session.AskStream` | `func (s *Session) AskStream(ctx context.Context, onEvent func(Event), messages ...Message) (*AgentResult, error)` | 同上，并把全部流式事件转发给 `onEvent`（见[流式事件](streaming.md)） |
 | `Session.History` | `func (s *Session) History() []Message` | 返回当前对话历史的**副本**（不含 system prompt），修改返回值不影响会话 |
 | `Session.SetHistory` | `func (s *Session) SetHistory(messages []Message)` | 整体替换历史（内部拷贝入参），用于恢复持久化的会话或手工构造上下文 |
-| `Session.Reset` | `func (s *Session) Reset()` | 清空历史，会话回到刚创建时的状态 |
+| `Session.Reset` | `func (s *Session) Reset()` | 清空历史与上下文用量，会话回到刚创建时的状态 |
+| `Session.Compact` | `func (s *Session) Compact(ctx context.Context) (string, error)` | 手动压缩历史：用模型生成摘要并替换整段历史，返回摘要。空历史为 no-op，失败时历史不变 |
+| `Session.ContextWindow` | `func (s *Session) ContextWindow() int` | 配置的上下文窗口大小（token），默认 1,000,000 |
+| `Session.ContextUsage` | `func (s *Session) ContextUsage() Usage` | 最近一次 Ask 最后一轮的 token 用量（`ContextTokens` 为当时的上下文占用量） |
+| `Session.ContextFillRatio` | `func (s *Session) ContextFillRatio() float64` | 上下文占用比例：`ContextTokens / ContextWindow` |
 
-返回值 `*AgentResult` 与 `agent.Run` 一致：`FinalText`（最终回答）、`Messages`（本轮完整轨迹：输入消息 + 所有 assistant / tool 消息）、`Usage`（跨轮累计）、`Turns`、`StopReason`（`AgentCompleted` / `AgentMaxTurns`）。
+返回值 `*AgentResult` 与 `agent.Run` 一致：`FinalText`（最终回答）、`Messages`（本轮完整轨迹：输入消息 + 所有 assistant / tool 消息）、`Usage`（跨轮累计）、`LastTurnUsage`（最后一轮的用量，其 `ContextTokens` 即当前上下文占用量）、`Turns`、`StopReason`（`AgentCompleted` / `AgentMaxTurns`）。
 
 ## 基本用法
 
@@ -202,13 +206,77 @@ if errors.Is(err, context.DeadlineExceeded) {
 }
 ```
 
+## 上下文窗口与历史压缩（Compact）
+
+历史只增不减，长会话终究会逼近模型的上下文上限。Session 可以跟踪上下文占用量，并在达到阈值时自动压缩历史，也可以随时手动压缩。
+
+### 跟踪上下文用量
+
+`agent.Session()` 接受若干 `SessionOption`：
+
+| Option | 说明 |
+|---|---|
+| `WithContextWindow(tokens int)` | 上下文窗口大小（token），默认 `DefaultContextWindow` = 1,000,000；非正值忽略 |
+| `WithAutoCompact(enabled bool)` | 开启自动压缩，默认关闭 |
+| `WithAutoCompactThreshold(ratio float64)` | 自动压缩触发的上下文占用比例，取值 (0, 1]，默认 `DefaultAutoCompactThreshold` = 0.6；越界值忽略 |
+
+每次 Ask 成功后，Session 记录**最后一轮**模型调用的用量：
+
+```go
+sess := agent.Session(callable.WithContextWindow(200_000))
+result, err := sess.Ask(ctx, callable.User("..."))
+
+sess.ContextUsage()      // 最后一轮的 Usage
+sess.ContextFillRatio()  // ContextTokens / ContextWindow，例如 0.45
+result.LastTurnUsage     // 同一个值，也可从结果上取
+```
+
+这里的关键是 `Usage.ContextTokens`：本次请求实际占用上下文的 token 总量，已按 provider 归一化——OpenAI 系取 `prompt_tokens`（本身包含缓存部分），Anthropic 取 `input_tokens + cache_read + cache_creation`。与按调用累加的 `Usage` 不同，它回答的是"现在上下文占了多满"。provider 不上报 usage 时该值为 0。
+
+### 自动压缩
+
+开启后，每次 Ask 结束时若 `ContextFillRatio() >= 阈值`，Session 自动执行一次压缩：
+
+```go
+sess := agent.Session(
+    callable.WithContextWindow(200_000),
+    callable.WithAutoCompact(true),
+    callable.WithAutoCompactThreshold(0.7), // 可选，默认 0.6
+)
+```
+
+- 自动压缩是 **best-effort**：压缩调用失败不会让这次 Ask 报错，历史保持原样。
+- 压缩成功后 `ContextUsage()` 清零，下一次 Ask 重新测量。
+- `AskStream` 在压缩成功时会收到 `SessionCompactEvent{Summary, TokensBefore}`（见[流式事件](streaming.md)）。
+- **对子 agent 无效**：子代理在自己独立的 agent loop 里运行、不经过 Session，此配置不会影响它们。
+
+### 手动压缩
+
+随时可调 `Compact`，无视阈值立即压缩：
+
+```go
+summary, err := sess.Compact(ctx) // 空历史是 no-op；失败时历史不变
+```
+
+### 压缩做了什么
+
+压缩把当前历史渲染成纯文本 transcript（thinking 块与图片以占位符表示），用 agent 的 client（同一 model，不带工具与 thinking 配置）调用一次模型生成摘要，然后把整段历史替换为一条 user 消息：
+
+```
+[Conversation compacted] Summary of the earlier conversation:
+
+<摘要>
+```
+
+因此压缩是不可逆的历史改写——thinking signature、provider 回传数据、原始工具轨迹都会被摘要取代。如有审计或恢复需求，请先通过 `History()` 自行备份。
+
 ## 注意事项
 
 - **并发**：`Session` 不是并发安全的，不要在多个 goroutine 里同时 Ask 同一个会话；需要并发请给每个 goroutine 一个独立会话。
 - **空消息**：`Ask(ctx)`（不传消息）会在历史为空时报错 `agent run requires at least one input message`；历史非空时则相当于"让模型基于现有历史再说点什么"。
 - **History 是副本**：`History()` 返回拷贝，追加消息请通过 `Ask` 或 `SetHistory`，直接改返回值无效。
 - **一个 agent 多个会话**：`agent.Session()` 可多次调用，各会话历史互不影响；但所有会话共享 agent 的配置（工具、system prompt、思考模式）。
-- **历史增长**：历史只增不减（除非 Reset / SetHistory），长会话要注意 token 成本，必要时自行用 `SetHistory` 截断或摘要（截断时同样要保证工具调用配对完整）。
+- **历史增长**：历史只增不减（除非 Reset / SetHistory / Compact），长会话要注意 token 成本——可以开启 `WithAutoCompact` 让会话自动压缩，或自行用 `SetHistory` 截断（截断时同样要保证工具调用配对完整）。
 - **system prompt 不入历史**：`History()` / `SetHistory()` 只管理 user / assistant / tool 消息；system prompt 由 agent 配置（`WithSystemPrompt`、skill 索引等）在每次请求时注入，不参与持久化。
 
 ## 相关文档

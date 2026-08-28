@@ -31,6 +31,12 @@ type Usage struct {
 	ReasoningTokens  int
 	CacheReadTokens  int
 	CacheWriteTokens int
+	// ContextTokens is the total number of tokens the request occupied in
+	// the model's context window, normalized across providers: for OpenAI
+	// it equals prompt tokens (which already include cached tokens); for
+	// Anthropic it is input + cache-read + cache-creation tokens. Sessions
+	// use it to measure context fill.
+	ContextTokens int
 }
 
 // Add accumulates usage from another turn (used by the agent loop).
@@ -40,6 +46,7 @@ func (u *Usage) Add(o Usage) {
 	u.ReasoningTokens += o.ReasoningTokens
 	u.CacheReadTokens += o.CacheReadTokens
 	u.CacheWriteTokens += o.CacheWriteTokens
+	u.ContextTokens += o.ContextTokens
 }
 
 // Response is a completed model turn in the unified model.

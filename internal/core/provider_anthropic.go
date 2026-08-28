@@ -269,6 +269,9 @@ func (u antUsageBody) toUsage() Usage {
 		OutputTokens:     u.OutputTokens,
 		CacheReadTokens:  u.CacheReadInputTokens,
 		CacheWriteTokens: u.CacheCreationInputTokens,
+		// Anthropic reports non-cached input only; the full context footprint
+		// includes cache reads and creations.
+		ContextTokens: u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens,
 	}
 }
 

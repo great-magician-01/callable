@@ -24,6 +24,7 @@
 - **Agent loop**：模型 → 工具执行 → 模型 → … 自动循环直到最终回答；支持审批钩子（放行/否决/改参）、并行工具执行、max turns 保护
 - **工具调用**：参数 struct 反射生成 JSON Schema（`invopop/jsonschema`），handler 即执行体；工具错误自动回传给模型而不是中断循环
 - **多轮对话**：内置 `Session` 维护历史，thinking 块 / 工具轨迹完整保留并正确回传（Anthropic signature、Responses reasoning item、DeepSeek/GLM reasoning_content）
+- **上下文管理**：Session 跟踪上下文窗口占用（`Usage.ContextTokens` 按 provider 归一化），支持阈值触发自动压缩（`WithAutoCompact`）与手动 `Compact` 压缩历史
 - **流式**：统一的 `ThinkingDelta / TextDelta / ToolCallDelta / ToolResult / Turn*` 事件流，agent loop 全程可见
 - **思考模式**：统一的 `Effort`（low/medium/high）映射到各家原生字段；自动适配 GLM/智谱、火山方舟、Qwen、DeepSeek 等国产端点的非标思考字段（按 BaseURL 自动嗅探）
 - **Skill 渐进式披露**：system prompt 只注入 name/description 索引，模型按需通过内置 `read_skill` 工具加载全文；读取钩子可改写内容
@@ -100,9 +101,14 @@ result, err := agent.RunStream(ctx, func(ev callable.Event) {
 ### 多轮会话
 
 ```go
-sess := agent.Session()
+sess := agent.Session(
+    callable.WithContextWindow(200_000),   // 上下文窗口，默认 1M
+    callable.WithAutoCompact(true),        // 达到阈值自动压缩历史，默认关闭
+)
 sess.Ask(ctx, callable.User("上海呢？"))            // 历史自动维护
 sess.AskStream(ctx, handler, callable.User("广州呢？"))
+sess.ContextFillRatio() // 当前上下文占用比例
+sess.Compact(ctx)       // 手动压缩历史
 sess.History()          // []Message，可 JSON 序列化持久化
 sess.SetHistory(saved)  // 恢复
 ```

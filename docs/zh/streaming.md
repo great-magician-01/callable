@@ -53,6 +53,7 @@ func (s *Session) AskStream(ctx context.Context, onEvent func(Event), messages .
 | `ToolResultEvent` | `Call ToolCall` `Result ToolResult` | 工具执行完毕后触发。`Result.Content` 是回传给模型的内容，`Result.IsError` 表示执行失败（错误会作为工具结果回传模型，不中断循环）。被 hook 否决或因取消被跳过的调用也会触发此事件（`IsError=true`） |
 | `AgentDoneEvent` | `Result *AgentResult` | agent loop 正常结束（模型给出最终回答）时触发，`Result` 与返回值是同一个对象。**达到 max turns 或出错/取消时不触发**，通过返回值/错误判断 |
 | `SubAgentEvent` | `SubAgent string` `Event Event` | 包装子代理 loop 内部产生的事件，`SubAgent` 是子代理名。仅在父 agent 开启 `WithSubAgentEvents(true)` 时产生，见[子代理](subagents.md) |
+| `SessionCompactEvent` | `Summary string` `TokensBefore int` | 会话在一轮结束时自动压缩了历史（仅 `AskStream`，且会话开启了 `WithAutoCompact`）。`Summary` 是生成的摘要，`TokensBefore` 是压缩前的上下文 token 数，见[多轮会话](session.md) |
 
 ## 典型事件序列
 

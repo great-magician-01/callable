@@ -194,7 +194,7 @@ func TestResponsesAssemble(t *testing.T) {
 	if resp.StopReason != StopReasonToolCalls {
 		t.Errorf("stop reason = %v", resp.StopReason)
 	}
-	if resp.Usage.ReasoningTokens != 4 {
+	if resp.Usage.ReasoningTokens != 4 || resp.Usage.ContextTokens != 10 {
 		t.Errorf("usage = %+v", resp.Usage)
 	}
 	// Raw items attached for replay.
@@ -269,7 +269,8 @@ func TestResponsesStream(t *testing.T) {
 	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Arguments != `{"city":"Oslo"}` {
 		t.Fatalf("tool calls = %+v", resp.ToolCalls)
 	}
-	if resp.Usage.InputTokens != 9 || resp.Usage.ReasoningTokens != 3 {
+	if resp.Usage.InputTokens != 9 || resp.Usage.ReasoningTokens != 3 ||
+		resp.Usage.ContextTokens != 9 {
 		t.Errorf("usage = %+v", resp.Usage)
 	}
 	if got := resp.Message.Thinking(); got != "thought" {

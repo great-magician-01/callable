@@ -303,7 +303,8 @@ func TestChatParseResponse(t *testing.T) {
 		t.Errorf("arguments = %q", resp.ToolCalls[0].Arguments)
 	}
 	if resp.Usage.InputTokens != 10 || resp.Usage.OutputTokens != 20 ||
-		resp.Usage.CacheReadTokens != 3 || resp.Usage.ReasoningTokens != 5 {
+		resp.Usage.CacheReadTokens != 3 || resp.Usage.ReasoningTokens != 5 ||
+		resp.Usage.ContextTokens != 10 {
 		t.Errorf("usage = %+v", resp.Usage)
 	}
 }
@@ -364,7 +365,8 @@ func TestChatStreamAccumulation(t *testing.T) {
 	if resp.StopReason != StopReasonToolCalls {
 		t.Errorf("stop reason = %v", resp.StopReason)
 	}
-	if resp.Usage.InputTokens != 7 || resp.Usage.OutputTokens != 9 {
+	if resp.Usage.InputTokens != 7 || resp.Usage.OutputTokens != 9 ||
+		resp.Usage.ContextTokens != 7 {
 		t.Errorf("usage = %+v", resp.Usage)
 	}
 
