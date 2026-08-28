@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.0](https://github.com/great-magician-01/callable/compare/v0.7.0...v0.8.0) (2026-08-28)
+
+
+### Features
+
+* add context compaction example and update documentation ([d1bc3f4](https://github.com/great-magician-01/callable/commit/d1bc3f4aff9a91de077df611c5f4577386c7afed))
+* add Kimi and Moonshot endpoints for OpenAI and Anthropic compatibility ([f004673](https://github.com/great-magician-01/callable/commit/f00467396853dba847f761fe4549e21c39ba1b49))
+* add web search capability to agent with built-in and Tavily fallback ([994ae4d](https://github.com/great-magician-01/callable/commit/994ae4d80efa15649a4858d13f31cc3ddfa3668a))
+
 ## [0.7.0](https://github.com/great-magician-01/callable/compare/v0.6.0...v0.7.0) (2026-08-28)
 
 
