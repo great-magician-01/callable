@@ -61,13 +61,26 @@ const compactedPrefix = "[Conversation compacted] Summary of the earlier convers
 // replaces the history with the summary, freeing context for subsequent
 // turns. It returns the summary. Compact is a no-op on an empty history. On
 // error the history is left untouched.
+//
+// The summarization call is streamed (a long transcript can take a while to
+// summarize, and streaming keeps the connection alive); its deltas are
+// discarded.
 func (s *Session) Compact(ctx context.Context) (string, error) {
-	if len(s.history) == 0 {
+	s.askMu.Lock()
+	defer s.askMu.Unlock()
+	return s.compact(ctx)
+}
+
+// compact is Compact without locking; callers must hold askMu.
+func (s *Session) compact(ctx context.Context) (string, error) {
+	s.mu.RLock()
+	transcript := renderTranscript(s.history)
+	s.mu.RUnlock()
+	if transcript == "" {
 		return "", nil
 	}
-	transcript := renderTranscript(s.history)
 	req := NewRequest(User(transcript + "\n\n" + compactInstruction))
-	resp, err := s.agent.client.Create(ctx, req)
+	resp, err := s.agent.client.Stream(ctx, req, nil)
 	if err != nil {
 		return "", fmt.Errorf("callable: compact: %w", err)
 	}
@@ -75,8 +88,10 @@ func (s *Session) Compact(ctx context.Context) (string, error) {
 	if summary == "" {
 		return "", fmt.Errorf("callable: compact: model returned an empty summary")
 	}
+	s.mu.Lock()
 	s.history = []Message{User(compactedPrefix + summary)}
 	s.contextUsage = Usage{}
+	s.mu.Unlock()
 	return summary, nil
 }
 

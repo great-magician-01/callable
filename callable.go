@@ -32,6 +32,7 @@ package callable
 import (
 	"context"
 	"net/http"
+	"time"
 
 	core "github.com/great-magician-01/callable/internal/core"
 )
@@ -108,6 +109,9 @@ type (
 	ToolCall = core.ToolCall
 	// Usage reports token consumption of a call (or an accumulated run).
 	Usage = core.Usage
+	// ResponseFormat constrains the model's output format (structured
+	// output); see JSONMode, JSONSchema and JSONSchemaFor.
+	ResponseFormat = core.ResponseFormat
 )
 
 // Stop reasons.
@@ -120,6 +124,34 @@ const (
 
 // NewRequest builds a Request from messages; configure it with its With* methods.
 func NewRequest(messages ...Message) *Request { return core.NewRequest(messages...) }
+
+// JSONMode requests free-form JSON output: the model answers with a JSON
+// value of any shape. Set it with Request.WithResponseFormat.
+func JSONMode() ResponseFormat { return core.JSONMode() }
+
+// JSONSchema requests output conforming to the given JSON Schema. Set it with
+// Request.WithResponseFormat.
+func JSONSchema(name string, schema map[string]any, strict bool) ResponseFormat {
+	return core.JSONSchema(name, schema, strict)
+}
+
+// JSONSchemaFor requests output conforming to the JSON Schema reflected from
+// the Go type T, using the same reflection (and `jsonschema` struct tags) as
+// NewTool:
+//
+//	type Recipe struct {
+//		Name  string   `json:"name" jsonschema:"description=Dish name"`
+//		Steps []string `json:"steps"`
+//	}
+//
+//	resp, err := client.Create(ctx, callable.NewRequest(
+//		callable.User("Give me a pancake recipe"),
+//	).WithResponseFormat(callable.JSONSchemaFor[Recipe]("recipe", true)))
+//	var recipe Recipe
+//	err = resp.DecodeJSON(&recipe)
+func JSONSchemaFor[T any](name string, strict bool) ResponseFormat {
+	return core.JSONSchemaFor[T](name, strict)
+}
 
 // ── Streaming events ───────────────────────────────────────────────────────
 
@@ -393,9 +425,16 @@ func WithHTTPClient(client *http.Client) ProviderOption { return core.WithHTTPCl
 func WithHeader(key, value string) ProviderOption { return core.WithHeader(key, value) }
 
 // WithRetries sets how many times transient failures (429, 5xx, network
-// errors) are retried, waiting 3s, 10s, then 30s between attempts. Default 3;
-// pass 0 to disable.
+// errors) are retried, waiting 3s, 10s, then 30s between attempts (see
+// WithRetryBackoff to change the schedule). Default 3; pass 0 to disable.
 func WithRetries(n int) ProviderOption { return core.WithRetries(n) }
+
+// WithRetryBackoff replaces the default retry wait schedule (3s, 10s, 30s):
+// delays[i] is the wait before retry i+1, and attempts beyond the schedule
+// reuse the last delay.
+func WithRetryBackoff(delays ...time.Duration) ProviderOption {
+	return core.WithRetryBackoff(delays...)
+}
 
 // WithCompat overrides the auto-detected endpoint dialect.
 func WithCompat(c Compat) ProviderOption { return core.WithCompat(c) }
@@ -407,11 +446,39 @@ type (
 	Client = core.Client
 	// ClientOption configures a Client.
 	ClientOption = core.ClientOption
+	// RequestHook observes every request right before it is sent (after
+	// client defaults are applied). Use it for logging, tracing or metrics.
+	RequestHook = core.RequestHook
+	// ResponseHook observes every finished request with exactly what the
+	// provider returned. Use it for logging, tracing or cost accounting.
+	ResponseHook = core.ResponseHook
 )
 
 // NewClient builds a Client on top of a provider.
 func NewClient(provider Provider, opts ...ClientOption) *Client {
 	return core.NewClient(provider, opts...)
+}
+
+// NewOpenAIClient is a shortcut for NewClient(NewOpenAIProvider(...)) with
+// the model set: the common case folded into one call.
+//
+//	client := callable.NewOpenAIClient(apiKey, callable.DeepSeekURL, "deepseek-v4")
+//
+// Use the two-step form (NewClient + NewOpenAIProvider) when you need
+// ProviderOptions such as WithRetries or WithHTTPClient.
+func NewOpenAIClient(apiKey, baseURL, model string, opts ...ClientOption) *Client {
+	return core.NewOpenAIClient(apiKey, baseURL, model, opts...)
+}
+
+// NewOpenAIResponsesClient is NewOpenAIClient for the OpenAI Responses
+// format.
+func NewOpenAIResponsesClient(apiKey, baseURL, model string, opts ...ClientOption) *Client {
+	return core.NewOpenAIResponsesClient(apiKey, baseURL, model, opts...)
+}
+
+// NewAnthropicClient is NewOpenAIClient for the Anthropic Messages format.
+func NewAnthropicClient(apiKey, baseURL, model string, opts ...ClientOption) *Client {
+	return core.NewAnthropicClient(apiKey, baseURL, model, opts...)
 }
 
 // WithModel sets the default model.
@@ -422,6 +489,29 @@ func WithMaxTokens(n int) ClientOption { return core.WithMaxTokens(n) }
 
 // WithTemperature sets the default sampling temperature.
 func WithTemperature(v float64) ClientOption { return core.WithTemperature(v) }
+
+// WithTopP sets the default nucleus-sampling probability mass.
+func WithTopP(v float64) ClientOption { return core.WithTopP(v) }
+
+// WithStopSequences sets default stop sequences that end generation.
+// Providers without stop-sequence support (OpenAI Responses) ignore them.
+func WithStopSequences(seq ...string) ClientOption { return core.WithStopSequences(seq...) }
+
+// WithResponseFormat sets the default output format (structured output).
+func WithResponseFormat(f ResponseFormat) ClientOption { return core.WithResponseFormat(f) }
+
+// WithExtra merges a provider-specific top-level field into every request
+// body this client sends (e.g. a gateway dialect flag). Request-level
+// Request.WithExtra wins on key conflicts.
+func WithExtra(key string, value any) ClientOption { return core.WithExtra(key, value) }
+
+// WithRequestHook registers a hook invoked before every request is sent.
+// Multiple hooks run in registration order.
+func WithRequestHook(hooks ...RequestHook) ClientOption { return core.WithRequestHook(hooks...) }
+
+// WithResponseHook registers a hook invoked after every request finishes.
+// Multiple hooks run in registration order.
+func WithResponseHook(hooks ...ResponseHook) ClientOption { return core.WithResponseHook(hooks...) }
 
 // ── Agent ──────────────────────────────────────────────────────────────────
 

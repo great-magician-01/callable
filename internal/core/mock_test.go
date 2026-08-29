@@ -90,3 +90,41 @@ func chatToolCallChunk(index int, id, name, argsDelta string, withID bool) strin
 // noopEvents discards streaming events; passing it keeps the agent on the
 // streaming code path (matching SSE fixtures) without observing events.
 var noopEvents = func(Event) {}
+
+// mockBody is one queued response body, served as SSE or plain JSON.
+type mockBody struct {
+	body string
+	sse  bool
+}
+
+// newMockMixedServer serves the given bodies in order (one per request), each
+// as text/event-stream or application/json, and records every request body.
+func newMockMixedServer(t *testing.T, responses []mockBody, requestBodies *[]string) *httptest.Server {
+	t.Helper()
+	var mu sync.Mutex
+	call := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		idx := call
+		call++
+		if requestBodies != nil {
+			*requestBodies = append(*requestBodies, string(body))
+		}
+		mu.Unlock()
+
+		if idx >= len(responses) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"unexpected request"}}`))
+			return
+		}
+		if responses[idx].sse {
+			w.Header().Set("Content-Type", "text/event-stream")
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+		}
+		_, _ = w.Write([]byte(responses[idx].body))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}

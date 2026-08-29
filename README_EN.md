@@ -27,6 +27,10 @@ A unified Go LLM calling library: one API that supports **OpenAI (Chat Completio
 - **Web search**: prefers the provider's built-in server-side search (Kimi, GLM/Z.AI, Qwen, Anthropic, OpenAI Responses — auto-sniffed from the BaseURL); endpoints without it can fall back to a Tavily-backed tool (`WithTavilyAPIKey`); explicit on/off via `WithWebSearch`.
 - **Multi-turn conversations**: the built-in `Session` maintains history; thinking blocks and tool traces are fully preserved and correctly sent back (Anthropic signature, Responses reasoning item, DeepSeek/GLM reasoning_content).
 - **Context management**: sessions track context-window occupancy (`Usage.ContextTokens`, normalized per provider) and support threshold-triggered auto-compaction (`WithAutoCompact`) plus manual `Compact`.
+- **Conversation IDs & persistence**: every session/run gets an auto-generated ID (`sess-` / `run-` prefix) stamped onto all streaming events and the `AgentResult`; `Session.Snapshot` / `Restore` persist and resume a conversation in one call each; Sessions are concurrency-safe.
+- **Structured output**: `JSONMode` / `JSONSchema` / `JSONSchemaFor[T]` (reflected from a struct) constrain JSON output and map to each provider's native control field; `resp.DecodeJSON(&v)` decodes straight into a Go struct.
+- **Sampling parameters**: `WithTopP` / `WithStopSequences` at request level or as Client defaults, mapped per provider (OpenAI Responses has no stop); temperature/top_p are omitted automatically in thinking mode.
+- **Request/response hooks**: `WithRequestHook` / `WithResponseHook` observe every model call (including those inside the agent loop) for logging, tracing, and cost accounting.
 - **Streaming**: a unified `ThinkingDelta / TextDelta / ToolCallDelta / ToolResult / Turn*` event stream with full visibility into the agent loop.
 - **Thinking mode**: a unified `Effort` (low/medium/high) mapped to each provider's native fields; automatically adapts to non-standard thinking fields of Chinese endpoints such as GLM/Zhipu, Volcano Ark, Qwen, and DeepSeek (auto-sniffed from the BaseURL).
 - **Progressive skill disclosure**: only a name/description index is injected into the system prompt; the model loads the full text on demand via the built-in `read_skill` tool; a read hook can rewrite the content.
@@ -43,12 +47,12 @@ go get github.com/great-magician-01/callable
 ## Quick Start
 
 ```go
-client := callable.NewClient(
-    // The second argument is the endpoint URL: constants for common vendors are
-    // built in (see below); for other endpoints pass the actual URL.
-    callable.NewAnthropicProvider(apiKey, callable.AnthropicURL), // or NewOpenAIProvider / NewOpenAIResponsesProvider
-    callable.WithModel("claude-sonnet-5"),
-)
+// The second argument is the endpoint URL: constants for common vendors are
+// built in (see below); for other endpoints pass the actual URL.
+client := callable.NewAnthropicClient(apiKey, callable.AnthropicURL, "claude-sonnet-5")
+// Or NewOpenAIClient / NewOpenAIResponsesClient; when you need a ProviderOption
+// (e.g. WithRetries), use the two-step form:
+// callable.NewClient(callable.NewAnthropicProvider(apiKey, callable.AnthropicURL), callable.WithModel(...))
 
 // Single streaming call
 err := client.Stream(ctx, callable.NewRequest(callable.User("Tell me a story")), func(ev callable.Event) {
@@ -112,8 +116,11 @@ sess.Ask(ctx, callable.User("What about Shanghai?"))   // history maintained aut
 sess.AskStream(ctx, handler, callable.User("And Guangzhou?"))
 sess.ContextFillRatio() // current context fill ratio
 sess.Compact(ctx)       // compact history manually
-sess.History()          // []Message, JSON-serializable for persistence
-sess.SetHistory(saved)  // restore
+sess.ID()               // conversation ID (sess- prefix), carried by all events and the AgentResult
+data, _ := sess.Snapshot() // persist the whole session (id + history + context usage)
+sess.Restore(data)      // restore from a snapshot
+sess.History()          // []Message, or serialize it yourself
+sess.SetHistory(saved)  // restore history manually
 ```
 
 ## Skills: Progressive Disclosure
@@ -280,7 +287,7 @@ callable.NewOpenAIProvider(key, callable.QwenURL)                 // Qwen, diale
 ## Error Handling
 
 - `*callable.APIError`: `Provider / StatusCode / Type / Message / Body`; `IsRetryable()` tells whether it can be retried.
-- Network errors / 429 / 5xx are retried automatically (3 retries by default, waiting 3s / 10s / 30s; configure with `WithRetries(n)`, disable with `WithRetries(0)`).
+- Network errors / 429 / 5xx are retried automatically (3 retries by default, waiting 3s / 10s / 30s; configure with `WithRetries(n)`, disable with `WithRetries(0)`, customize the schedule with `WithRetryBackoff(d...)`).
 - Tool execution errors → returned to the model as an `IsError` tool result (so it can retry or take another path) without breaking the loop.
 - `*callable.MaxTurnsError`: carries `Partial *AgentResult`.
 - Per-request escape hatch: `NewRequest(...).WithExtra("key", value)` passes any top-level field through.
@@ -321,6 +328,7 @@ See [`examples/`](./examples): quickstart, tools (agent loop), thinking (thinkin
 - [Web Search](docs/en/web-search.md)
 - [Streaming Events](docs/en/streaming.md)
 - [Thinking Mode](docs/en/thinking.md)
+- [Structured Output & Sampling](docs/en/structured-output.md)
 - [Skills](docs/en/skills.md)
 - [Sub-Agents](docs/en/subagents.md)
 - [Image Input](docs/en/images.md)

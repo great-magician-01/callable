@@ -14,6 +14,7 @@ Detailed usage documentation organized by feature. All API names and signatures 
 - [Web Search](web-search.md) — built-in provider search auto-detection, the Kimi echo protocol, the Tavily fallback
 - [Streaming Events](streaming.md) — event reference, typical event sequences, Usage accounting
 - [Thinking Mode](thinking.md) — Effort levels, per-provider mapping, pitfalls of Chinese-compatible endpoints
+- [Structured Output & Sampling](structured-output.md) — JSON mode / JSON Schema / DecodeJSON, top_p and stop sequences
 - [Skills](skills.md) — progressive disclosure, the read_skill tool, read hooks, custom loader tools
 - [Sub-Agents](subagents.md) — the two-step load_agent delegation flow, SubAgentOption, event forwarding
 - [Image Input](images.md) — file paths/URLs/raw bytes, mixed content, per-provider conversion

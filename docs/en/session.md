@@ -14,8 +14,12 @@ sess := agent.Session()
 result, err := sess.Ask(ctx, callable.User("Hello"))
 result, err := sess.AskStream(ctx, onEvent, callable.User("Go on"))
 
+sess.ID()                    // conversation ID (sess- prefix, generated at creation)
+data, err := sess.Snapshot() // serialize the whole session (id + history + context usage) as JSON
+err = sess.Restore(data)     // restore from a snapshot
+
 history := sess.History()       // a copy of []callable.Message
-sess.SetHistory(restored)       // replace history wholesale (e.g. restore persisted state)
+sess.SetHistory(restored)       // replace history wholesale (e.g. seed context manually)
 sess.Reset()                    // clear history
 ```
 
@@ -24,8 +28,11 @@ sess.Reset()                    // clear history
 | `Agent.Session` | `func (a *Agent) Session(opts ...SessionOption) *Session` | Create a new, empty session on this agent. One agent can host multiple independent sessions; `opts` are covered in "Context window and compaction" below |
 | `Session.Ask` | `func (s *Session) Ask(ctx context.Context, messages ...Message) (*AgentResult, error)` | Append messages to the history and run the agent loop (non-streaming). Equivalent to `agent.Run`, with the history prepended automatically |
 | `Session.AskStream` | `func (s *Session) AskStream(ctx context.Context, onEvent func(Event), messages ...Message) (*AgentResult, error)` | Same as Ask, forwarding all streaming events to `onEvent` (see [Streaming Events](streaming.md)) |
+| `Session.ID` | `func (s *Session) ID() string` | The conversation ID (`sess-` prefix), generated at creation and stable across asks; `Reset` keeps it, `Restore` replaces it with the snapshotted id. Every event and `AgentResult` of this session carries it |
 | `Session.History` | `func (s *Session) History() []Message` | Return a **copy** of the conversation history (system prompt excluded); mutating the returned slice has no effect on the session |
 | `Session.SetHistory` | `func (s *Session) SetHistory(messages []Message)` | Replace the history wholesale (the argument is copied), e.g. to restore a persisted conversation or seed context manually |
+| `Session.Snapshot` | `func (s *Session) Snapshot() ([]byte, error)` | Serialize the session state (id + history + context usage) as JSON for persistence. Configuration (context window, auto-compact) is not part of the snapshot |
+| `Session.Restore` | `func (s *Session) Restore(data []byte) error` | Restore a snapshot produced by `Snapshot` (replacing id, history and context usage); a snapshot without an id is an error. Re-apply configuration via `SessionOption`s after restoring |
 | `Session.Reset` | `func (s *Session) Reset()` | Clear the history and the tracked context usage, returning the session to its freshly-created state |
 | `Session.Compact` | `func (s *Session) Compact(ctx context.Context) (string, error)` | Compact the history manually: summarize it with the model and replace it wholesale; returns the summary. No-op on empty history; the history is untouched on error |
 | `Session.ContextWindow` | `func (s *Session) ContextWindow() int` | The configured context window size in tokens (default 1,000,000) |
@@ -33,6 +40,14 @@ sess.Reset()                    // clear history
 | `Session.ContextFillRatio` | `func (s *Session) ContextFillRatio() float64` | Context fill ratio: `ContextTokens / ContextWindow` |
 
 The returned `*AgentResult` is identical to `agent.Run`'s: `FinalText` (the final answer), `Messages` (the full trajectory of this run: input messages plus all assistant/tool messages), `Usage` (accumulated across turns), `LastTurnUsage` (the final turn's usage — its `ContextTokens` is the current context occupancy), `Turns`, and `StopReason` (`AgentCompleted` / `AgentMaxTurns`).
+
+## Conversation ID
+
+Every session gets a random ID at creation (`sess-` prefix), returned by `Session.ID()`. The ID stays stable across asks, survives `Reset`, and is replaced by the snapshotted id on `Restore`.
+
+The ID identifies where events and results belong: every streaming event from `AskStream` carries it in its `ConversationID` field, and `AgentResult.ConversationID` carries it too. Use it to tell sources apart when several sessions share one event callback, or to correlate events with logs and billing records.
+
+A bare `agent.Run` / `RunStream` (no session) generates a fresh `run-`-prefixed ID per run; the lower-level `client.Create` / `Stream` produce no ID (the event `ConversationID` is the empty string). See [Streaming Events](streaming.md).
 
 ## Basic usage
 
@@ -78,16 +93,15 @@ fmt.Println("history length:", len(session.History()))
 - When the run **succeeds** (`err == nil`), `result.Messages` becomes the new history — i.e. old history + this input + every assistant message produced this run (thinking and tool calls included) + every tool-result message. All of it is echoed back on the next Ask.
 - A single Ask may span several loop turns (model calls a tool → result goes back → model is asked again); those intermediate messages are preserved in the history as well.
 
-## Persisting history: serialize to JSON and restore
+## Persisting history: Snapshot / Restore
 
-`Message` and all its Part types implement JSON serialization (provider round-trip data included — see the next section), so the result of `History()` can be `json.Marshal`ed directly and restored later with `SetHistory`; the conversation continues seamlessly:
+`Session.Snapshot()` serializes the whole session state (conversation id + full history + context usage) as JSON, and `Session.Restore(data)` restores it onto a fresh session. `Message` and all its Part types implement JSON serialization (provider round-trip data included — see the next section), so continuing a conversation across processes takes two lines:
 
 ```go
 package main
 
 import (
     "context"
-    "encoding/json"
     "fmt"
     "log"
     "os"
@@ -95,51 +109,25 @@ import (
     callable "github.com/great-magician-01/callable"
 )
 
-const historyFile = "session.json"
-
-// saveHistory writes the session history to a file.
-func saveHistory(sess *callable.Session) error {
-    data, err := json.MarshalIndent(sess.History(), "", "  ")
-    if err != nil {
-        return err
-    }
-    return os.WriteFile(historyFile, data, 0o644)
-}
-
-// loadHistory reads a persisted history; a missing file means a fresh session.
-func loadHistory() ([]callable.Message, error) {
-    data, err := os.ReadFile(historyFile)
-    if os.IsNotExist(err) {
-        return nil, nil
-    }
-    if err != nil {
-        return nil, err
-    }
-    var history []callable.Message
-    if err := json.Unmarshal(data, &history); err != nil {
-        return nil, err
-    }
-    return history, nil
-}
+const snapshotFile = "session.json"
 
 func main() {
     ctx := context.Background()
 
-    client := callable.NewClient(
-        callable.NewAnthropicProvider(os.Getenv("ANTHROPIC_API_KEY"), callable.AnthropicURL),
-        callable.WithModel("claude-sonnet-5"),
-    )
+    client := callable.NewAnthropicClient(os.Getenv("ANTHROPIC_API_KEY"), callable.AnthropicURL, "claude-sonnet-5")
     agent := callable.NewAgent(client,
         callable.WithThinking(callable.Thinking{Effort: callable.EffortMedium}),
     )
-    session := agent.Session()
+    session := agent.Session(
+        callable.WithContextWindow(200_000), // config is not snapshotted; re-apply after restore
+    )
 
-    // Restore the previous conversation, if any.
-    history, err := loadHistory()
-    if err != nil {
-        log.Fatal(err)
+    // Restore the previous conversation, if any: id, history and context usage come back together.
+    if data, err := os.ReadFile(snapshotFile); err == nil {
+        if err := session.Restore(data); err != nil {
+            log.Fatal(err)
+        }
     }
-    session.SetHistory(history)
 
     result, err := session.Ask(ctx, callable.User("Where did we leave off last time?"))
     if err != nil {
@@ -147,11 +135,30 @@ func main() {
     }
     fmt.Println(result.FinalText)
 
-    // Persist the updated history for the next run.
-    if err := saveHistory(session); err != nil {
+    // Persist the updated session for the next run.
+    data, err := session.Snapshot()
+    if err != nil {
+        log.Fatal(err)
+    }
+    if err := os.WriteFile(snapshotFile, data, 0o644); err != nil {
         log.Fatal(err)
     }
 }
+```
+
+Details:
+
+- The snapshot JSON looks like `{"id": "sess-…", "history": […], "context_usage": {…}}`; each message inside `history` has the same format as a serialized `History()` entry (see below).
+- Configuration (context window, auto-compact threshold, ...) is not part of the snapshot — it is runtime configuration; re-apply it via `SessionOption`s after restoring.
+- `Restore` requires the snapshot to carry an id (i.e. it must come from `Snapshot()`); hand-assembled JSON without an id is rejected with an error.
+
+If you only want to persist/restore the history itself (e.g. to trim or inspect it first), the manual route still works — `json.Marshal` the result of `History()` and restore it later with `SetHistory`:
+
+```go
+data, _ := json.Marshal(session.History()) // the history itself is plain JSON
+var history []callable.Message
+_ = json.Unmarshal(data, &history)
+session.SetHistory(history) // restores the history only, not the id or context usage
 ```
 
 A serialized message looks like this:
@@ -260,7 +267,7 @@ summary, err := sess.Compact(ctx) // no-op on empty history; history untouched o
 
 ### What compaction does
 
-Compaction renders the current history as a plain-text transcript (thinking blocks and images become placeholders), asks the model for a summary using the agent's client (same model, without tools or thinking config), then replaces the whole history with a single user message:
+Compaction renders the current history as a plain-text transcript (thinking blocks and images become placeholders), asks the model for a summary using the agent's client (same model, without tools or thinking config), then replaces the whole history with a single user message. The summarization call is streamed (summarizing a long transcript can take a while, and streaming keeps gateways from timing out); the deltas are discarded and the external behavior is unchanged:
 
 ```
 [Conversation compacted] Summary of the earlier conversation:
@@ -272,7 +279,7 @@ Compaction is therefore an irreversible rewrite of the history: thinking signatu
 
 ## Caveats
 
-- **Concurrency**: a `Session` is not safe for concurrent use — do not Ask the same session from multiple goroutines; give each goroutine its own session instead.
+- **Concurrency-safe**: a `Session` can be shared across goroutines — `Ask` / `AskStream` / `Compact` are serialized (a second Ask waits for the in-flight one), and the read methods (`ID` / `History` / `ContextUsage` / `ContextFillRatio` / `Snapshot`) never block on an in-flight Ask. For truly parallel conversations, still give each goroutine its own session.
 - **Empty input**: `Ask(ctx)` with no messages fails with `agent run requires at least one input message` when the history is empty; with a non-empty history it effectively asks the model to continue from the existing context.
 - **History is a copy**: `History()` returns a copy. To append messages, use `Ask` or `SetHistory`; mutating the returned slice does nothing.
 - **Many sessions per agent**: `agent.Session()` can be called repeatedly and the sessions' histories are independent, but they all share the agent's configuration (tools, system prompt, thinking mode).

@@ -45,6 +45,9 @@ type oaiChatPayload struct {
 	MaxTokens           *int               `json:"max_tokens,omitempty"`
 	MaxCompletionTokens *int               `json:"max_completion_tokens,omitempty"`
 	Temperature         *float64           `json:"temperature,omitempty"`
+	TopP                *float64           `json:"top_p,omitempty"`
+	Stop                []string           `json:"stop,omitempty"`
+	ResponseFormat      any                `json:"response_format,omitempty"`
 	ReasoningEffort     string             `json:"reasoning_effort,omitempty"`
 	Thinking            *oaiCompatThinking `json:"thinking,omitempty"`        // GLM / Ark / DeepSeek
 	EnableThinking      *bool              `json:"enable_thinking,omitempty"` // Qwen
@@ -203,8 +206,19 @@ func (p *OpenAIProvider) buildPayload(req *Request, stream bool) ([]byte, error)
 		}
 	}
 	if !thinkingOn {
-		// Thinking models reject custom temperatures; omit when thinking.
+		// Thinking models reject custom sampling parameters; omit when thinking.
 		payload.Temperature = req.Temperature
+		payload.TopP = req.TopP
+	}
+	payload.Stop = req.Stop
+	payload.ResponseFormat = oaiChatResponseFormat(req.Format)
+	if req.Format != nil && req.Format.Schema != nil && p.compat&(CompatDeepSeek|CompatGLM) != 0 {
+		// DeepSeek rejects json_schema outright and GLM/Z.AI documents only
+		// text/json_object. Downgrade to json_object and spell the schema out
+		// in the prompt instead — both vendors' recommended way to steer
+		// JSON-mode conformance.
+		payload.ResponseFormat = map[string]any{"type": "json_object"}
+		payload.Messages = appendSchemaHint(payload.Messages, req.Format.Schema)
 	}
 
 	if stream {
@@ -214,6 +228,48 @@ func (p *OpenAIProvider) buildPayload(req *Request, stream bool) ([]byte, error)
 		}
 	}
 	return mergeExtraJSON(payload, req.Extra)
+}
+
+// oaiChatResponseFormat maps the unified ResponseFormat onto the Chat
+// Completions response_format field.
+func oaiChatResponseFormat(f *ResponseFormat) any {
+	if f == nil {
+		return nil
+	}
+	if f.Schema == nil {
+		return map[string]any{"type": "json_object"}
+	}
+	return map[string]any{
+		"type": "json_schema",
+		"json_schema": map[string]any{
+			"name":   f.schemaName(),
+			"schema": f.Schema,
+			"strict": f.Strict,
+		},
+	}
+}
+
+// appendSchemaHint appends a "conform to this JSON Schema" instruction to the
+// last user message of already-converted chat messages (or adds a trailing
+// user message when there is none). Used by the DeepSeek json_object
+// downgrade; the caller's Messages are untouched.
+func appendSchemaHint(messages []oaiChatMessage, schema map[string]any) []oaiChatMessage {
+	hint := "\n\nRespond with a JSON object that conforms to this JSON Schema: " + mustJSON(schema)
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "user" {
+			continue
+		}
+		switch c := messages[i].Content.(type) {
+		case string:
+			messages[i].Content = c + hint
+		case []oaiUserContentPart:
+			messages[i].Content = append(c, oaiUserContentPart{Type: "text", Text: hint})
+		case nil:
+			messages[i].Content = strings.TrimSpace(hint)
+		}
+		return messages
+	}
+	return append(messages, oaiChatMessage{Role: "user", Content: strings.TrimSpace(hint)})
 }
 
 // convertMessages maps unified messages to chat-completions messages. System

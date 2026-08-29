@@ -16,6 +16,15 @@ type Request struct {
 	MaxTokens int
 	// Temperature is sampling temperature. nil uses the client default.
 	Temperature *float64
+	// TopP is nucleus-sampling probability mass. nil uses the client default.
+	TopP *float64
+	// Stop lists stop sequences that end generation. nil uses the client
+	// default. Providers without stop-sequence support (OpenAI Responses)
+	// ignore it.
+	Stop []string
+	// Format constrains the output format (structured output). nil uses the
+	// client default, which is plain text.
+	Format *ResponseFormat
 	// WebSearch asks the provider to enable its built-in server-side web
 	// search when the endpoint has one (see WithWebSearch). Providers
 	// without built-in search ignore it.
@@ -59,6 +68,27 @@ func (r *Request) WithMaxTokens(n int) *Request {
 func (r *Request) WithTemperature(v float64) *Request {
 	cp := v
 	r.Temperature = &cp
+	return r
+}
+
+// WithTopP sets nucleus-sampling probability mass.
+func (r *Request) WithTopP(v float64) *Request {
+	cp := v
+	r.TopP = &cp
+	return r
+}
+
+// WithStopSequences sets stop sequences that end generation. Calling it with
+// no arguments explicitly clears any client default for this request.
+func (r *Request) WithStopSequences(seq ...string) *Request {
+	r.Stop = append([]string{}, seq...)
+	return r
+}
+
+// WithResponseFormat constrains the output format (structured output).
+func (r *Request) WithResponseFormat(f ResponseFormat) *Request {
+	cp := f
+	r.Format = &cp
 	return r
 }
 

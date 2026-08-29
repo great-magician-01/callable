@@ -75,6 +75,7 @@ type providerConfig struct {
 	httpClient *http.Client
 	headers    map[string]string
 	maxRetries int
+	backoff    []time.Duration // nil = backoffDelays
 	compat     Compat
 }
 
@@ -126,6 +127,18 @@ func WithRetries(n int) ProviderOption {
 // WithCompat overrides the auto-detected OpenAI-compatible endpoint dialect.
 func WithCompat(c Compat) ProviderOption {
 	return func(cfg *providerConfig) { cfg.compat = c }
+}
+
+// WithRetryBackoff replaces the default retry wait schedule (3s, 10s, 30s):
+// delays[i] is the wait before retry i+1, and attempts beyond the schedule
+// reuse the last delay. Ignored when empty; combine with WithRetries to also
+// change the attempt count.
+func WithRetryBackoff(delays ...time.Duration) ProviderOption {
+	return func(cfg *providerConfig) {
+		if len(delays) > 0 {
+			cfg.backoff = append([]time.Duration{}, delays...)
+		}
+	}
 }
 
 // httpAPI is the shared transport used by all providers: JSON POSTs with
@@ -196,7 +209,7 @@ func (a *httpAPI) post(ctx context.Context, endpoint string, payload []byte, str
 	var lastErr error
 	for attempt := 0; attempt < attempts; attempt++ {
 		if attempt > 0 {
-			if err := sleepBackoff(ctx, attempt); err != nil {
+			if err := a.sleepBackoff(ctx, attempt); err != nil {
 				return nil, err
 			}
 		}
@@ -238,23 +251,27 @@ func (a *httpAPI) transportError(err error) *APIError {
 	return &APIError{Provider: a.name, Message: err.Error()}
 }
 
-// backoffDelays is the fixed wait schedule before each retry: 3s before the
+// backoffDelays is the default wait schedule before each retry: 3s before the
 // first retry, then 10s, then 30s. Attempts beyond the schedule reuse the
 // last delay. It is a package-level variable so tests can swap in a fast
-// schedule.
+// schedule; per-provider schedules are configured with WithRetryBackoff.
 var backoffDelays = []time.Duration{3 * time.Second, 10 * time.Second, 30 * time.Second}
 
-// backoffDelay returns how long to wait before retry attempt (1-based).
-func backoffDelay(attempt int) time.Duration {
-	i := attempt - 1
-	if i >= len(backoffDelays) {
-		i = len(backoffDelays) - 1
+// backoffDelay returns how long to wait before retry attempt (1-based),
+// preferring the provider's configured schedule over backoffDelays.
+func backoffDelay(schedule []time.Duration, attempt int) time.Duration {
+	if len(schedule) == 0 {
+		schedule = backoffDelays
 	}
-	return backoffDelays[i]
+	i := attempt - 1
+	if i >= len(schedule) {
+		i = len(schedule) - 1
+	}
+	return schedule[i]
 }
 
-func sleepBackoff(ctx context.Context, attempt int) error {
-	timer := time.NewTimer(backoffDelay(attempt))
+func (a *httpAPI) sleepBackoff(ctx context.Context, attempt int) error {
+	timer := time.NewTimer(backoffDelay(a.cfg.backoff, attempt))
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():

@@ -31,7 +31,19 @@ import callable "github.com/great-magician-01/callable"
 
 ## Creating a Client and Provider
 
-The typical assembly order is: **Provider (pick a wire format and endpoint) → Client (fill in defaults like the model)**.
+The shortest path is one of the three convenience constructors — "Provider + default model" folded into a single call:
+
+```go
+client := callable.NewAnthropicClient(apiKey, callable.AnthropicURL, "claude-sonnet-5")
+```
+
+| Convenience constructor | Equivalent expansion |
+|---|---|
+| `NewOpenAIClient(apiKey, baseURL, model string, opts ...ClientOption) *Client` | `NewClient(NewOpenAIProvider(apiKey, baseURL), WithModel(model), opts...)` |
+| `NewOpenAIResponsesClient(apiKey, baseURL, model string, opts ...ClientOption) *Client` | `NewClient(NewOpenAIResponsesProvider(apiKey, baseURL), WithModel(model), opts...)` |
+| `NewAnthropicClient(apiKey, baseURL, model string, opts ...ClientOption) *Client` | `NewClient(NewAnthropicProvider(apiKey, baseURL), WithModel(model), opts...)` |
+
+When you need a `ProviderOption` (e.g. `WithRetries`, `WithHTTPClient`, `WithCompat`), fall back to the two-step form. The typical assembly order is: **Provider (pick a wire format and endpoint) → Client (fill in defaults like the model)**:
 
 ```go
 client := callable.NewClient(
@@ -128,11 +140,12 @@ All Provider constructors accept `opts ...ProviderOption`:
 | `WithHTTPClient` | `WithHTTPClient(client *http.Client) ProviderOption` | Supply a custom `*http.Client` (proxy, TLS, timeouts, ...). Passing `nil` is ignored. |
 | `WithHeader` | `WithHeader(key, value string) ProviderOption` | Adds a header to every provider request. Applied **after** authentication, so it can override defaults like `Authorization`. |
 | `WithRetries` | `WithRetries(n int) ProviderOption` | How many times transient failures (network errors, 429, 5xx) are retried. Default 3; pass 0 to disable; negative values are clamped to 0. |
+| `WithRetryBackoff` | `WithRetryBackoff(delays ...time.Duration) ProviderOption` | Replaces the default retry wait schedule (3s/10s/30s): `delays[i]` is the wait before retry i+1; retries beyond the schedule reuse the last delay. Combine with `WithRetries`. |
 | `WithCompat` | `WithCompat(c Compat) ProviderOption` | Overrides the auto-detected endpoint dialect (see previous section). |
 
 Behavior details:
 
-- **Retry backoff**: a fixed schedule — 3s before the first retry, 10s before the second, 30s before the third; retries beyond the schedule reuse the last delay (30s). The wait is interruptible by context cancellation.
+- **Retry backoff**: a fixed schedule by default — 3s before the first retry, 10s before the second, 30s before the third; retries beyond the schedule reuse the last delay (30s). `WithRetryBackoff` replaces the schedule wholesale. The wait is interruptible by context cancellation.
 - **Retryable status codes**: only 429 and 5xx; other 4xx responses (400, 401, 403, ...) are not retried and surface immediately as `*callable.APIError`. See [Error Handling](errors.md).
 - **The default HTTP client has no global timeout**: long streams must not be cut off, so cancellation/timeouts are controlled exclusively through `context.Context`. If you want a timeout, either inject a client with `Timeout` via `WithHTTPClient` or (preferably) use `context.WithTimeout`.
 - **There is no default baseURL**: the library ships no default endpoint; the `baseURL` argument is required.
@@ -148,8 +161,13 @@ func NewClient(provider Provider, opts ...ClientOption) *Client
 | `WithModel` | `WithModel(model string) ClientOption` | Default model ID |
 | `WithMaxTokens` | `WithMaxTokens(n int) ClientOption` | Default maximum output tokens |
 | `WithTemperature` | `WithTemperature(v float64) ClientOption` | Default sampling temperature |
+| `WithTopP` | `WithTopP(v float64) ClientOption` | Default nucleus-sampling probability mass, see [Structured Output & Sampling](structured-output.md) |
+| `WithStopSequences` | `WithStopSequences(seq ...string) ClientOption` | Default stop sequences (unsupported by OpenAI Responses — ignored there), see above |
+| `WithResponseFormat` | `WithResponseFormat(f ResponseFormat) ClientOption` | Default output format constraint (structured output), see above |
+| `WithRequestHook` | `WithRequestHook(hooks ...RequestHook) ClientOption` | Registers request hooks, invoked in order before every request is sent; see "Request/response hooks" below |
+| `WithResponseHook` | `WithResponseHook(hooks ...ResponseHook) ClientOption` | Registers response hooks, invoked in order after every call finishes; see "Request/response hooks" below |
 
-These are **defaults**: they only take effect when the `Request` itself leaves the field unset (filled only when `Request.Model == ""`, `MaxTokens == 0`, `Temperature == nil`). Request-level `WithModel` / `WithMaxTokens` / `WithTemperature` override the Client defaults:
+Except for the hooks, these are **defaults**: they only take effect when the `Request` itself leaves the field unset (filled only when `Request.Model == ""`, `MaxTokens == 0`, `Temperature == nil`, `TopP == nil`, `Stop == nil`, `Format == nil`). Request-level `WithModel` / `WithMaxTokens` / `WithTemperature` etc. override the Client defaults:
 
 ```go
 req := callable.NewRequest(callable.User("...")).
@@ -158,6 +176,33 @@ req := callable.NewRequest(callable.User("...")).
 ```
 
 When applying defaults the Client **copies** the request instead of mutating it, so the same `*Request` can be reused safely.
+
+### Request/response hooks
+
+Client-level observability hooks, useful for logging, distributed tracing, and token cost accounting:
+
+```go
+type RequestHook  func(ctx context.Context, req *Request)
+type ResponseHook func(ctx context.Context, req *Request, resp *Response, err error)
+```
+
+```go
+client := callable.NewAnthropicClient(apiKey, callable.AnthropicURL, "claude-sonnet-5",
+    callable.WithRequestHook(func(ctx context.Context, req *callable.Request) {
+        log.Printf("→ %s (%d messages)", req.Model, len(req.Messages))
+    }),
+    callable.WithResponseHook(func(ctx context.Context, req *callable.Request, resp *callable.Response, err error) {
+        if err == nil {
+            log.Printf("← %d in / %d out tokens", resp.Usage.InputTokens, resp.Usage.OutputTokens)
+        }
+    }),
+)
+```
+
+- A `RequestHook` fires right before the request is sent and sees the request with the Client defaults already applied.
+- A `ResponseHook` fires after the call finishes; `resp` / `err` are exactly what the provider returned (for `Stream`, resp is the assembled final response).
+- Both options accept multiple hooks, run in registration order; hooks must not mutate the request or response.
+- Every internal model call of an Agent passes through the hooks as well — an N-turn loop triggers them N times.
 
 ## Minimal call examples
 
@@ -202,9 +247,7 @@ func main() {
 
     // The endpoint must be passed explicitly; the key is read from the
     // environment here, but the library itself reads no env vars.
-    client := callable.NewClient(
-        callable.NewOpenAIProvider(os.Getenv("OPENAI_API_KEY"), callable.OpenAIURL),
-        callable.WithModel("gpt-5"),
+    client := callable.NewOpenAIClient(os.Getenv("OPENAI_API_KEY"), callable.OpenAIURL, "gpt-5",
         callable.WithMaxTokens(2048),
     )
 
@@ -230,12 +273,10 @@ func main() {
 }
 ```
 
-The Anthropic variant only swaps the Provider constructor:
+The Anthropic variant only swaps the convenience constructor:
 
 ```go
-callable.NewClient(
-    callable.NewAnthropicProvider(os.Getenv("ANTHROPIC_API_KEY"), callable.AnthropicURL),
-    callable.WithModel("claude-sonnet-5"),
+callable.NewAnthropicClient(os.Getenv("ANTHROPIC_API_KEY"), callable.AnthropicURL, "claude-sonnet-5",
     callable.WithMaxTokens(2048),
 )
 ```
@@ -253,6 +294,7 @@ Runnable examples live in `examples/quickstart` (picks a provider based on which
 ## Next steps
 
 - [Message Model](messages.md) — `Message` / `Part` and the constructor helpers
+- [Structured Output & Sampling](structured-output.md) — JSON mode / JSON Schema, `DecodeJSON`, `top_p` and stop sequences
 - [Streaming Events](streaming.md) — the complete streaming event list
 - [Agent Loop](agent.md) — the automatic tool loop
 - [Thinking Mode](thinking.md) — per-endpoint thinking field mapping

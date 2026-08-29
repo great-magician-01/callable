@@ -13,10 +13,34 @@ func chatJSONUsage(text string, promptTokens int) string {
 		`"usage":{"prompt_tokens":%d,"completion_tokens":1}}`, text, promptTokens)
 }
 
+// chatSSEUsage builds a streaming chat-completions response carrying text and usage.
+func chatSSEUsage(text string, promptTokens int) string {
+	return chatSSE(
+		fmt.Sprintf(`{"choices":[{"delta":{"role":"assistant","content":%q}}]}`, text),
+		fmt.Sprintf(`{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":%d,"completion_tokens":1}}`, promptTokens),
+	)
+}
+
 // chatSessionFixture builds a session over a mock chat-completions JSON server.
 func chatSessionFixture(t *testing.T, responses []string, bodies *[]string, opts ...SessionOption) *Session {
 	t.Helper()
 	server := newMockJSONServer(t, responses, bodies)
+	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
+	return NewAgent(client).Session(opts...)
+}
+
+// chatSessionMixedFixture builds a session over a mock server that answers
+// non-streaming runs with JSON and streaming compaction calls with SSE.
+func chatSessionMixedFixture(t *testing.T, runBodies []string, compactBodies []string, bodies *[]string, opts ...SessionOption) *Session {
+	t.Helper()
+	var responses []mockBody
+	for _, b := range runBodies {
+		responses = append(responses, mockBody{body: b})
+	}
+	for _, b := range compactBodies {
+		responses = append(responses, mockBody{body: b, sse: true})
+	}
+	server := newMockMixedServer(t, responses, bodies)
 	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 	return NewAgent(client).Session(opts...)
 }
@@ -105,7 +129,8 @@ func TestSessionAutoCompactBelowThreshold(t *testing.T) {
 
 func TestSessionAutoCompactTriggers(t *testing.T) {
 	var bodies []string
-	sess := chatSessionFixture(t, []string{chatJSONUsage("hi", 700), chatJSONUsage("a summary", 50)}, &bodies,
+	sess := chatSessionMixedFixture(t,
+		[]string{chatJSONUsage("hi", 700)}, []string{chatSSEUsage("a summary", 50)}, &bodies,
 		WithContextWindow(1000), WithAutoCompact(true)) // 70% >= 60%
 
 	result, err := sess.Ask(context.Background(), User("hello"))
@@ -118,10 +143,14 @@ func TestSessionAutoCompactTriggers(t *testing.T) {
 	if len(bodies) != 2 {
 		t.Fatalf("requests = %d, want 2 (run + compaction)", len(bodies))
 	}
-	// The compaction request carries the rendered transcript plus instruction.
+	// The compaction request carries the rendered transcript plus instruction,
+	// and is streamed (stream:true) to keep long summarizations alive.
 	if !strings.Contains(bodies[1], "Summarize the conversation transcript") ||
 		!strings.Contains(bodies[1], "hello") {
 		t.Errorf("compaction request body = %s", bodies[1])
+	}
+	if !strings.Contains(bodies[1], `"stream":true`) {
+		t.Errorf("compaction request must be streamed, body = %s", bodies[1])
 	}
 	// History is replaced by the summary message.
 	history := sess.History()
@@ -138,13 +167,12 @@ func TestSessionAutoCompactTriggers(t *testing.T) {
 }
 
 func TestSessionAutoCompactEvent(t *testing.T) {
-	// AskStream goes through the SSE path; the compaction Create still
-	// consumes a plain JSON body (Create only checks the status code).
+	// Both the run and the compaction go through the SSE path.
 	turn := chatSSE(
 		`{"choices":[{"delta":{"role":"assistant","content":"hi"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":700,"completion_tokens":1}}`,
 	)
-	server := newMockServer(t, []string{turn, chatJSONUsage("a summary", 50)}, nil)
+	server := newMockServer(t, []string{turn, chatSSEUsage("a summary", 50)}, nil)
 	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 	sess := NewAgent(client).Session(WithContextWindow(1000), WithAutoCompact(true))
 
@@ -185,7 +213,8 @@ func TestSessionAutoCompactFailureIsBestEffort(t *testing.T) {
 
 func TestSessionManualCompact(t *testing.T) {
 	var bodies []string
-	sess := chatSessionFixture(t, []string{chatJSONUsage("hi", 100), chatJSONUsage("we talked about greetings", 50)}, &bodies,
+	sess := chatSessionMixedFixture(t,
+		[]string{chatJSONUsage("hi", 100)}, []string{chatSSEUsage("we talked about greetings", 50)}, &bodies,
 		WithContextWindow(1000))
 
 	if _, err := sess.Ask(context.Background(), User("hello")); err != nil {

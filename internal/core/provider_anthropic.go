@@ -51,14 +51,27 @@ func (p *AnthropicProvider) endpoint() string {
 // ── wire types ─────────────────────────────────────────────────────────────
 
 type antPayload struct {
-	Model       string       `json:"model"`
-	MaxTokens   int          `json:"max_tokens"`
-	System      string       `json:"system,omitempty"`
-	Messages    []antMessage `json:"messages"`
-	Tools       []any        `json:"tools,omitempty"` // antTool or a server tool entry
-	Thinking    *antThinking `json:"thinking,omitempty"`
-	Temperature *float64     `json:"temperature,omitempty"`
-	Stream      bool         `json:"stream,omitempty"`
+	Model         string           `json:"model"`
+	MaxTokens     int              `json:"max_tokens"`
+	System        string           `json:"system,omitempty"`
+	Messages      []antMessage     `json:"messages"`
+	Tools         []any            `json:"tools,omitempty"` // antTool or a server tool entry
+	Thinking      *antThinking     `json:"thinking,omitempty"`
+	Temperature   *float64         `json:"temperature,omitempty"`
+	TopP          *float64         `json:"top_p,omitempty"`
+	StopSequences []string         `json:"stop_sequences,omitempty"`
+	OutputConfig  *antOutputConfig `json:"output_config,omitempty"`
+	Stream        bool             `json:"stream,omitempty"`
+}
+
+// antOutputConfig carries Anthropic's native structured-output control.
+type antOutputConfig struct {
+	Format antOutputFormat `json:"format"`
+}
+
+type antOutputFormat struct {
+	Type   string         `json:"type"` // "json_schema"
+	Schema map[string]any `json:"schema"`
 }
 
 type antThinking struct {
@@ -164,12 +177,30 @@ func (p *AnthropicProvider) buildPayload(req *Request, stream bool) ([]byte, err
 		}
 		payload.Thinking = &antThinking{Type: "enabled", BudgetTokens: budget}
 	} else {
-		// Thinking mode requires temperature 1; omit it entirely when on.
+		// Thinking mode requires temperature 1; omit sampling parameters when on.
 		payload.Temperature = req.Temperature
+		payload.TopP = req.TopP
 	}
+	payload.StopSequences = req.Stop
+	payload.OutputConfig = antOutputConfigFor(req.Format)
 	payload.MaxTokens = maxTokens
 	payload.Stream = stream
 	return mergeExtraJSON(payload, req.Extra)
+}
+
+// antOutputConfigFor maps the unified ResponseFormat onto Anthropic's native
+// output_config.format. Anthropic has no schema-less JSON mode, so a
+// free-form JSON request becomes a permissive object schema. The Strict flag
+// is inherent: Anthropic always enforces the schema.
+func antOutputConfigFor(f *ResponseFormat) *antOutputConfig {
+	if f == nil {
+		return nil
+	}
+	schema := f.Schema
+	if schema == nil {
+		schema = map[string]any{"type": "object"}
+	}
+	return &antOutputConfig{Format: antOutputFormat{Type: "json_schema", Schema: schema}}
 }
 
 // convertMessages maps unified messages to Anthropic messages. Consecutive

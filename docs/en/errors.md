@@ -77,7 +77,7 @@ The client layer retries transient failures automatically, with a fixed, predict
 |---|---|
 | Trigger | network errors (connection failures, ...), HTTP 429, HTTP 5xx |
 | Default count | 3 retries (up to 4 requests total) |
-| Wait schedule | 3s before retry 1, 10s before retry 2, 30s before retry 3 |
+| Wait schedule | 3s before retry 1, 10s before retry 2, 30s before retry 3; replaceable wholesale with `WithRetryBackoff` |
 | `WithRetries(n)` | sets the retry count; negative values are clamped to 0 |
 | `WithRetries(0)` | disables retries; every error is returned immediately |
 | Beyond the schedule | retries 4 and later each wait 30s |
@@ -88,6 +88,16 @@ client := callable.NewClient(
         callable.WithRetries(5), // 5 retries, waiting 3s/10s/30s/30s/30s
     ),
     callable.WithModel("gpt-5"),
+)
+```
+
+`WithRetryBackoff` replaces the default 3s/10s/30s schedule with a custom one: `delays[i]` is the wait before retry i+1, and retries beyond the schedule reuse the last value:
+
+```go
+callable.NewOpenAIProvider(apiKey, callable.OpenAIURL,
+    callable.WithRetries(4),
+    callable.WithRetryBackoff(500*time.Millisecond, 2*time.Second, 5*time.Second),
+    // the 4 retries wait 0.5s / 2s / 5s / 5s
 )
 ```
 
@@ -209,6 +219,18 @@ resp, err := client.Create(ctx,
 ```
 
 After the request is serialized into the provider's wire format, `WithExtra(key, value)` overlays the key/value onto the top-level JSON object — which means it **can overwrite fields the library sets itself** (e.g. `max_tokens`). That is an intentional escape-hatch design: powerful, but a wrong key name or type produces no compile-time error — it goes straight to the server (usually surfacing as a 400 `*APIError`, whose `Body` carries the provider's complaint). Use it only when no first-class API exists.
+
+When a gateway requires a dialect parameter on **every** request, set a client-level default with the ClientOption form of `WithExtra`; request-level fields win on conflicts:
+
+```go
+client := callable.NewClient(
+    callable.NewOpenAIProvider(apiKey, gatewayURL),
+    callable.WithModel("..."),
+    callable.WithExtra("gateway_flag", true), // sent with every request
+)
+```
+
+For custom HTTP headers a gateway requires, use the provider-level `WithHeader` (see "Creating a Client and Provider" in Getting Started).
 
 ## Complete example
 

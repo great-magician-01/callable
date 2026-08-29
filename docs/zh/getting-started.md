@@ -31,7 +31,19 @@ import callable "github.com/great-magician-01/callable"
 
 ## 创建 Client 与 Provider
 
-典型装配顺序是：**Provider（选 wire 格式和端点）→ Client（填默认模型等参数）**。
+最简路径是三个便捷构造函数——把「Provider + 默认模型」折叠成一行：
+
+```go
+client := callable.NewAnthropicClient(apiKey, callable.AnthropicURL, "claude-sonnet-5")
+```
+
+| 便捷构造 | 等价展开 |
+|---|---|
+| `NewOpenAIClient(apiKey, baseURL, model string, opts ...ClientOption) *Client` | `NewClient(NewOpenAIProvider(apiKey, baseURL), WithModel(model), opts...)` |
+| `NewOpenAIResponsesClient(apiKey, baseURL, model string, opts ...ClientOption) *Client` | `NewClient(NewOpenAIResponsesProvider(apiKey, baseURL), WithModel(model), opts...)` |
+| `NewAnthropicClient(apiKey, baseURL, model string, opts ...ClientOption) *Client` | `NewClient(NewAnthropicProvider(apiKey, baseURL), WithModel(model), opts...)` |
+
+需要 `ProviderOption`（如 `WithRetries`、`WithHTTPClient`、`WithCompat`）时回到两步构造，典型装配顺序是：**Provider（选 wire 格式和端点）→ Client（填默认模型等参数）**：
 
 ```go
 client := callable.NewClient(
@@ -128,11 +140,12 @@ callable.NewOpenAIProvider(key, callable.QwenURL,
 | `WithHTTPClient` | `WithHTTPClient(client *http.Client) ProviderOption` | 注入自定义 `*http.Client`（代理、TLS、超时等）。传 `nil` 则忽略。 |
 | `WithHeader` | `WithHeader(key, value string) ProviderOption` | 给每个 provider 请求附加 header。在认证头**之后**应用，因此可以用它覆盖 `Authorization` 等默认头。 |
 | `WithRetries` | `WithRetries(n int) ProviderOption` | 瞬时失败（网络错误、429、5xx）的重试次数。默认 3；传 0 关闭；负数按 0 处理。 |
+| `WithRetryBackoff` | `WithRetryBackoff(delays ...time.Duration) ProviderOption` | 替换默认重试等待表（3s/10s/30s）：`delays[i]` 是第 i+1 次重试前的等待，超出次数复用最后一个。与 `WithRetries` 配合。 |
 | `WithCompat` | `WithCompat(c Compat) ProviderOption` | 覆盖自动嗅探的端点方言（见上节）。 |
 
 行为细节：
 
-- **重试退避**：固定时间表——第一次重试前等 3s，第二次前等 10s，第三次前等 30s；超过时间表的重试沿用最后一个间隔（30s）。重试等待可被 context 取消打断。
+- **重试退避**：默认固定时间表——第一次重试前等 3s，第二次前等 10s，第三次前等 30s；超过时间表的重试沿用最后一个间隔（30s）。可用 `WithRetryBackoff` 整体替换该表。重试等待可被 context 取消打断。
 - **可重试状态码**：仅 429 与 5xx；4xx（如 400、401、403）不重试，直接返回 `*callable.APIError`。详见[错误处理](errors.md)。
 - **默认 HTTP 客户端无全局超时**：长流式响应不能被掐断，取消/超时一律用 `context.Context` 控制。需要超时就通过 `WithHTTPClient` 注入带 `Timeout` 的 client，或（更推荐）用 `context.WithTimeout`。
 - **默认 baseURL 不存在**：库不带任何默认端点，`baseURL` 参数必填。
@@ -148,8 +161,13 @@ func NewClient(provider Provider, opts ...ClientOption) *Client
 | `WithModel` | `WithModel(model string) ClientOption` | 默认模型 ID |
 | `WithMaxTokens` | `WithMaxTokens(n int) ClientOption` | 默认最大输出 token 数 |
 | `WithTemperature` | `WithTemperature(v float64) ClientOption` | 默认采样温度 |
+| `WithTopP` | `WithTopP(v float64) ClientOption` | 默认核采样（nucleus sampling）概率质量，见[结构化输出与采样参数](structured-output.md) |
+| `WithStopSequences` | `WithStopSequences(seq ...string) ClientOption` | 默认停止序列（OpenAI Responses 不支持，会被忽略），同上 |
+| `WithResponseFormat` | `WithResponseFormat(f ResponseFormat) ClientOption` | 默认输出格式约束（结构化输出），同上 |
+| `WithRequestHook` | `WithRequestHook(hooks ...RequestHook) ClientOption` | 注册请求钩子，每次请求发送前按序调用，见下文「请求/响应钩子」 |
+| `WithResponseHook` | `WithResponseHook(hooks ...ResponseHook) ClientOption` | 注册响应钩子，每次调用结束后按序调用，见下文「请求/响应钩子」 |
 
-这些是**默认值**：只有当 `Request` 自身没有设置对应字段时才生效（`Request.Model == ""`、`MaxTokens == 0`、`Temperature == nil` 时才填充）。请求级别的 `WithModel` / `WithMaxTokens` / `WithTemperature` 会覆盖 Client 默认值：
+除钩子外这些都是**默认值**：只有当 `Request` 自身没有设置对应字段时才生效（`Request.Model == ""`、`MaxTokens == 0`、`Temperature == nil`、`TopP == nil`、`Stop == nil`、`Format == nil` 时才填充）。请求级别的 `WithModel` / `WithMaxTokens` / `WithTemperature` 等会覆盖 Client 默认值：
 
 ```go
 req := callable.NewRequest(callable.User("...")).
@@ -158,6 +176,33 @@ req := callable.NewRequest(callable.User("...")).
 ```
 
 填充默认值时 Client 会**复制**请求而不修改原对象，同一个 `*Request` 可以安全地复用。
+
+### 请求/响应钩子
+
+Client 级的观测钩子，适合日志、分布式 trace 与 token 成本统计：
+
+```go
+type RequestHook  func(ctx context.Context, req *Request)
+type ResponseHook func(ctx context.Context, req *Request, resp *Response, err error)
+```
+
+```go
+client := callable.NewAnthropicClient(apiKey, callable.AnthropicURL, "claude-sonnet-5",
+    callable.WithRequestHook(func(ctx context.Context, req *callable.Request) {
+        log.Printf("→ %s (%d 条消息)", req.Model, len(req.Messages))
+    }),
+    callable.WithResponseHook(func(ctx context.Context, req *callable.Request, resp *callable.Response, err error) {
+        if err == nil {
+            log.Printf("← 输入 %d / 输出 %d tokens", resp.Usage.InputTokens, resp.Usage.OutputTokens)
+        }
+    }),
+)
+```
+
+- `RequestHook` 在请求发送前触发，看到的是应用了 Client 默认值之后的请求。
+- `ResponseHook` 在调用结束后触发，`resp` / `err` 与 provider 返回的完全一致（`Stream` 是聚合后的最终响应）。
+- 两个选项都可传入多个钩子，按注册顺序执行；钩子不应修改请求或响应。
+- Agent 的每次内部模型调用同样经过钩子——loop 跑了 N 轮就触发 N 次。
 
 ## 最小调用示例
 
@@ -201,9 +246,7 @@ func main() {
     ctx := context.Background()
 
     // 端点必须显式传入；这里从环境变量读 key，库本身不读环境变量
-    client := callable.NewClient(
-        callable.NewOpenAIProvider(os.Getenv("OPENAI_API_KEY"), callable.OpenAIURL),
-        callable.WithModel("gpt-5"),
+    client := callable.NewOpenAIClient(os.Getenv("OPENAI_API_KEY"), callable.OpenAIURL, "gpt-5",
         callable.WithMaxTokens(2048),
     )
 
@@ -229,12 +272,10 @@ func main() {
 }
 ```
 
-Anthropic 版只需把 Provider 构造换成：
+Anthropic 版只需换一个便捷构造函数：
 
 ```go
-callable.NewClient(
-    callable.NewAnthropicProvider(os.Getenv("ANTHROPIC_API_KEY"), callable.AnthropicURL),
-    callable.WithModel("claude-sonnet-5"),
+callable.NewAnthropicClient(os.Getenv("ANTHROPIC_API_KEY"), callable.AnthropicURL, "claude-sonnet-5",
     callable.WithMaxTokens(2048),
 )
 ```
@@ -252,6 +293,7 @@ callable.NewClient(
 ## 下一步
 
 - [消息模型](messages.md) — `Message` / `Part` 与构造辅助函数
+- [结构化输出与采样参数](structured-output.md) — JSON 模式 / JSON Schema、`DecodeJSON`、`top_p` 与停止序列
 - [流式事件](streaming.md) — 完整的流式事件清单
 - [Agent 循环](agent.md) — 自动工具循环
 - [思考模式](thinking.md) — 各端点思考字段映射
