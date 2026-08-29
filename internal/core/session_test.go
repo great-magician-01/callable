@@ -40,6 +40,21 @@ func eventConversationID(ev Event) string {
 	}
 }
 
+func TestEventConversationIDHelperCoversAllEvents(t *testing.T) {
+	events := []Event{
+		MessageStartEvent{}, ThinkingDeltaEvent{}, TextDeltaEvent{},
+		ToolCallDeltaEvent{}, MessageDoneEvent{}, TurnStartEvent{}, TurnEndEvent{},
+		ToolCallEvent{}, ToolResultEvent{}, AgentDoneEvent{}, SubAgentEvent{},
+		SessionCompactEvent{},
+	}
+	for _, ev := range events {
+		stamped := withConversationID(ev, "id-1")
+		if got := eventConversationID(stamped); got != "id-1" {
+			t.Errorf("%T: conversation id = %q", ev, got)
+		}
+	}
+}
+
 func TestSessionConversationID(t *testing.T) {
 	sess := chatSessionFixture(t, []string{ChatJSONUsage("hi", 100), ChatJSONUsage("again", 200)}, nil)
 

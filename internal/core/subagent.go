@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	client "github.com/great-magician-01/callable/internal/client"
 )
 
 // SubAgent is a named, self-contained agent definition the parent agent can
@@ -294,11 +296,11 @@ func newSubAgentCallTool(sub SubAgent, parent *Client) Tool {
 // build materializes the sub-agent's Agent. The client resolution order is:
 // explicit client > parent client with model override > parent client.
 func (s *SubAgent) build(parent *Client) *Agent {
-	client := s.client
-	if client == nil {
-		client = parent
+	c := s.client
+	if c == nil {
+		c = parent
 		if s.model != "" {
-			client = parent.derive(s.model)
+			c = client.Derive(parent, s.model)
 		}
 	}
 	opts := []AgentOption{WithSystemPrompt(s.prompt)}
@@ -314,7 +316,7 @@ func (s *SubAgent) build(parent *Client) *Agent {
 	if s.maxTurns > 0 {
 		opts = append(opts, WithMaxTurns(s.maxTurns))
 	}
-	return NewAgent(client, opts...)
+	return NewAgent(c, opts...)
 }
 
 // lastAssistantText returns the text of the last assistant message in a

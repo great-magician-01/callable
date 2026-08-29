@@ -1,16 +1,23 @@
-package core
+package client
 
 import (
 	"context"
 	"errors"
-	. "github.com/great-magician-01/callable/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	. "github.com/great-magician-01/callable/internal/model"
+	provider "github.com/great-magician-01/callable/internal/provider"
+	. "github.com/great-magician-01/callable/internal/testutil"
 )
+
+// noopEvents discards streaming events; passing it keeps the agent on the
+// streaming code path (matching SSE fixtures) without observing events.
+var noopEvents = func(Event) {}
 
 // TestClientHooksAndDefaults verifies request/response hooks observe the
 // defaulted request and the provider result, and that the new defaults land
@@ -22,7 +29,7 @@ func TestClientHooksAndDefaults(t *testing.T) {
 	var hookReq *Request
 	var hookResp *Response
 	var hookErr error
-	client := NewClient(NewOpenAIProvider("k", server.URL),
+	client := NewClient(provider.NewOpenAIProvider("k", server.URL),
 		WithModel("m"),
 		WithTopP(0.3),
 		WithStopSequences("END"),
@@ -75,14 +82,14 @@ func TestClientHooksAndDefaults(t *testing.T) {
 func TestClientResponseHookSeesErrors(t *testing.T) {
 	server := NewMockJSONServer(t, nil, nil) // every request gets a 400
 	var hookErr error
-	client := NewClient(NewOpenAIProvider("k", server.URL, WithRetries(0)),
+	client := NewClient(provider.NewOpenAIProvider("k", server.URL, provider.WithRetries(0)),
 		WithModel("m"),
 		WithResponseHook(func(ctx context.Context, req *Request, resp *Response, err error) {
 			hookErr = err
 		}),
 	)
 	_, err := client.Create(context.Background(), NewRequest(User("hi")))
-	var apiErr *APIError
+	var apiErr *provider.APIError
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("err = %v, want APIError", err)
 	}
@@ -146,7 +153,7 @@ func TestWithRetryBackoff(t *testing.T) {
 
 	start := time.Now()
 	client := NewClient(
-		NewOpenAIProvider("k", srv.URL, WithRetries(2), WithRetryBackoff(time.Millisecond)),
+		provider.NewOpenAIProvider("k", srv.URL, provider.WithRetries(2), provider.WithRetryBackoff(time.Millisecond)),
 		WithModel("m"),
 	)
 	if _, err := client.Create(context.Background(), NewRequest(User("hi"))); err != nil {
@@ -166,7 +173,7 @@ func TestWithRetryBackoff(t *testing.T) {
 func TestClientDefaultOverrides(t *testing.T) {
 	var bodies []string
 	server := NewMockJSONServer(t, []string{ChatJSON("a"), ChatJSON("b")}, &bodies)
-	client := NewClient(NewOpenAIProvider("k", server.URL),
+	client := NewClient(provider.NewOpenAIProvider("k", server.URL),
 		WithModel("m"),
 		WithStopSequences("CLIENT"),
 		WithResponseFormat(JSONMode()),
@@ -204,7 +211,7 @@ func TestClientDefaultOverrides(t *testing.T) {
 func TestClientExtraMerge(t *testing.T) {
 	var bodies []string
 	server := NewMockJSONServer(t, []string{ChatJSON("a"), ChatJSON("b")}, &bodies)
-	client := NewClient(NewOpenAIProvider("k", server.URL),
+	client := NewClient(provider.NewOpenAIProvider("k", server.URL),
 		WithModel("m"),
 		WithExtra("gateway_flag", true),
 		WithExtra("shared", "client"),
@@ -231,20 +238,5 @@ func TestClientExtraMerge(t *testing.T) {
 	}
 	if got := DecodeMap(t, []byte(bodies[1]))["shared"]; got != "request" {
 		t.Errorf("shared = %v, want request-level value", got)
-	}
-}
-
-func TestEventConversationIDHelperCoversAllEvents(t *testing.T) {
-	events := []Event{
-		MessageStartEvent{}, ThinkingDeltaEvent{}, TextDeltaEvent{},
-		ToolCallDeltaEvent{}, MessageDoneEvent{}, TurnStartEvent{}, TurnEndEvent{},
-		ToolCallEvent{}, ToolResultEvent{}, AgentDoneEvent{}, SubAgentEvent{},
-		SessionCompactEvent{},
-	}
-	for _, ev := range events {
-		stamped := withConversationID(ev, "id-1")
-		if got := eventConversationID(stamped); got != "id-1" {
-			t.Errorf("%T: conversation id = %q", ev, got)
-		}
 	}
 }

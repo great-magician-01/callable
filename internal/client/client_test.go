@@ -1,4 +1,4 @@
-package core
+package client
 
 import (
 	"context"
@@ -8,10 +8,13 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	. "github.com/great-magician-01/callable/internal/model"
+	provider "github.com/great-magician-01/callable/internal/provider"
 )
 
 func TestClientApplyDefaults(t *testing.T) {
-	client := NewClient(NewOpenAIProvider("k", "https://chat.example.com/v1"),
+	client := NewClient(provider.NewOpenAIProvider("k", "https://chat.example.com/v1"),
 		WithModel("default-model"),
 		WithMaxTokens(100),
 		WithTemperature(0.3),
@@ -47,9 +50,9 @@ func TestClientNoRetryOn400(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := NewClient(NewOpenAIProvider("k", srv.URL, WithRetries(2)), WithModel("m"))
+	client := NewClient(provider.NewOpenAIProvider("k", srv.URL, provider.WithRetries(2)), WithModel("m"))
 	_, err := client.Create(context.Background(), NewRequest(User("hi")))
-	apiErr, ok := err.(*APIError)
+	apiErr, ok := err.(*provider.APIError)
 	if !ok {
 		t.Fatalf("err = %T (%v)", err, err)
 	}
@@ -71,7 +74,7 @@ func TestClientContextCancelNoRetry(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	client := NewClient(NewOpenAIProvider("k", srv.URL, WithRetries(5)), WithModel("m"))
+	client := NewClient(provider.NewOpenAIProvider("k", srv.URL, provider.WithRetries(5)), WithModel("m"))
 	_, err := client.Create(ctx, NewRequest(User("hi")))
 	if err == nil {
 		t.Fatal("expected context error")

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	client "github.com/great-magician-01/callable/internal/client"
 	model "github.com/great-magician-01/callable/internal/model"
 	provider "github.com/great-magician-01/callable/internal/provider"
 )
@@ -182,3 +183,44 @@ func WithRetryBackoff(delays ...time.Duration) ProviderOption {
 }
 
 func WithCompat(c Compat) ProviderOption { return provider.WithCompat(c) }
+
+// ── Client (internal/client) ───────────────────────────────────────────────
+
+type (
+	Client       = client.Client
+	ClientOption = client.ClientOption
+	RequestHook  = client.RequestHook
+	ResponseHook = client.ResponseHook
+)
+
+func NewClient(p Provider, opts ...ClientOption) *Client { return client.NewClient(p, opts...) }
+
+func NewOpenAIClient(apiKey, baseURL, model string, opts ...ClientOption) *Client {
+	return client.NewOpenAIClient(apiKey, baseURL, model, opts...)
+}
+
+func NewOpenAIResponsesClient(apiKey, baseURL, model string, opts ...ClientOption) *Client {
+	return client.NewOpenAIResponsesClient(apiKey, baseURL, model, opts...)
+}
+
+func NewAnthropicClient(apiKey, baseURL, model string, opts ...ClientOption) *Client {
+	return client.NewAnthropicClient(apiKey, baseURL, model, opts...)
+}
+
+func WithModel(model string) ClientOption { return client.WithModel(model) }
+
+func WithMaxTokens(n int) ClientOption { return client.WithMaxTokens(n) }
+
+func WithTemperature(v float64) ClientOption { return client.WithTemperature(v) }
+
+func WithTopP(v float64) ClientOption { return client.WithTopP(v) }
+
+func WithStopSequences(seq ...string) ClientOption { return client.WithStopSequences(seq...) }
+
+func WithResponseFormat(f ResponseFormat) ClientOption { return client.WithResponseFormat(f) }
+
+func WithExtra(key string, value any) ClientOption { return client.WithExtra(key, value) }
+
+func WithRequestHook(hooks ...RequestHook) ClientOption { return client.WithRequestHook(hooks...) }
+
+func WithResponseHook(hooks ...ResponseHook) ClientOption { return client.WithResponseHook(hooks...) }

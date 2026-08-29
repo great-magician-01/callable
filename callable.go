@@ -35,6 +35,7 @@ import (
 	"net/http"
 	"time"
 
+	client "github.com/great-magician-01/callable/internal/client"
 	core "github.com/great-magician-01/callable/internal/core"
 	model "github.com/great-magician-01/callable/internal/model"
 	provider "github.com/great-magician-01/callable/internal/provider"
@@ -446,20 +447,20 @@ func WithCompat(c Compat) ProviderOption { return provider.WithCompat(c) }
 
 type (
 	// Client is a thin wrapper around a Provider applying model defaults.
-	Client = core.Client
+	Client = client.Client
 	// ClientOption configures a Client.
-	ClientOption = core.ClientOption
+	ClientOption = client.ClientOption
 	// RequestHook observes every request right before it is sent (after
 	// client defaults are applied). Use it for logging, tracing or metrics.
-	RequestHook = core.RequestHook
+	RequestHook = client.RequestHook
 	// ResponseHook observes every finished request with exactly what the
 	// provider returned. Use it for logging, tracing or cost accounting.
-	ResponseHook = core.ResponseHook
+	ResponseHook = client.ResponseHook
 )
 
 // NewClient builds a Client on top of a provider.
 func NewClient(provider Provider, opts ...ClientOption) *Client {
-	return core.NewClient(provider, opts...)
+	return client.NewClient(provider, opts...)
 }
 
 // NewOpenAIClient is a shortcut for NewClient(NewOpenAIProvider(...)) with
@@ -470,51 +471,51 @@ func NewClient(provider Provider, opts ...ClientOption) *Client {
 // Use the two-step form (NewClient + NewOpenAIProvider) when you need
 // ProviderOptions such as WithRetries or WithHTTPClient.
 func NewOpenAIClient(apiKey, baseURL, model string, opts ...ClientOption) *Client {
-	return core.NewOpenAIClient(apiKey, baseURL, model, opts...)
+	return client.NewOpenAIClient(apiKey, baseURL, model, opts...)
 }
 
 // NewOpenAIResponsesClient is NewOpenAIClient for the OpenAI Responses
 // format.
 func NewOpenAIResponsesClient(apiKey, baseURL, model string, opts ...ClientOption) *Client {
-	return core.NewOpenAIResponsesClient(apiKey, baseURL, model, opts...)
+	return client.NewOpenAIResponsesClient(apiKey, baseURL, model, opts...)
 }
 
 // NewAnthropicClient is NewOpenAIClient for the Anthropic Messages format.
 func NewAnthropicClient(apiKey, baseURL, model string, opts ...ClientOption) *Client {
-	return core.NewAnthropicClient(apiKey, baseURL, model, opts...)
+	return client.NewAnthropicClient(apiKey, baseURL, model, opts...)
 }
 
 // WithModel sets the default model.
-func WithModel(model string) ClientOption { return core.WithModel(model) }
+func WithModel(model string) ClientOption { return client.WithModel(model) }
 
 // WithMaxTokens sets the default max output tokens.
-func WithMaxTokens(n int) ClientOption { return core.WithMaxTokens(n) }
+func WithMaxTokens(n int) ClientOption { return client.WithMaxTokens(n) }
 
 // WithTemperature sets the default sampling temperature.
-func WithTemperature(v float64) ClientOption { return core.WithTemperature(v) }
+func WithTemperature(v float64) ClientOption { return client.WithTemperature(v) }
 
 // WithTopP sets the default nucleus-sampling probability mass.
-func WithTopP(v float64) ClientOption { return core.WithTopP(v) }
+func WithTopP(v float64) ClientOption { return client.WithTopP(v) }
 
 // WithStopSequences sets default stop sequences that end generation.
 // Providers without stop-sequence support (OpenAI Responses) ignore them.
-func WithStopSequences(seq ...string) ClientOption { return core.WithStopSequences(seq...) }
+func WithStopSequences(seq ...string) ClientOption { return client.WithStopSequences(seq...) }
 
 // WithResponseFormat sets the default output format (structured output).
-func WithResponseFormat(f ResponseFormat) ClientOption { return core.WithResponseFormat(f) }
+func WithResponseFormat(f ResponseFormat) ClientOption { return client.WithResponseFormat(f) }
 
 // WithExtra merges a provider-specific top-level field into every request
 // body this client sends (e.g. a gateway dialect flag). Request-level
 // Request.WithExtra wins on key conflicts.
-func WithExtra(key string, value any) ClientOption { return core.WithExtra(key, value) }
+func WithExtra(key string, value any) ClientOption { return client.WithExtra(key, value) }
 
 // WithRequestHook registers a hook invoked before every request is sent.
 // Multiple hooks run in registration order.
-func WithRequestHook(hooks ...RequestHook) ClientOption { return core.WithRequestHook(hooks...) }
+func WithRequestHook(hooks ...RequestHook) ClientOption { return client.WithRequestHook(hooks...) }
 
 // WithResponseHook registers a hook invoked after every request finishes.
 // Multiple hooks run in registration order.
-func WithResponseHook(hooks ...ResponseHook) ClientOption { return core.WithResponseHook(hooks...) }
+func WithResponseHook(hooks ...ResponseHook) ClientOption { return client.WithResponseHook(hooks...) }
 
 // ── Agent ──────────────────────────────────────────────────────────────────
 
