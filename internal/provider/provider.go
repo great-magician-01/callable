@@ -1,4 +1,8 @@
-package core
+// Package provider implements the three built-in provider adapters (OpenAI
+// Chat Completions, OpenAI Responses, Anthropic Messages) behind the unified
+// Provider interface, plus the shared HTTP/SSE/retry infrastructure and
+// well-known endpoint constants. The message model lives in internal/model.
+package provider
 
 import (
 	"bufio"
@@ -11,6 +15,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	model "github.com/great-magician-01/callable/internal/model"
 )
 
 // Provider converts unified requests to a specific wire format and parses
@@ -21,14 +27,14 @@ type Provider interface {
 	// Name identifies the provider; it keys Message provider round-trip data.
 	Name() string
 	// Create performs a non-streaming request.
-	Create(ctx context.Context, req *Request) (*Response, error)
+	Create(ctx context.Context, req *model.Request) (*model.Response, error)
 	// Stream performs a streaming request, invoking onEvent for every event
 	// and returning the assembled response at the end. If the context is
 	// canceled mid-stream, Stream returns the partially assembled response
 	// together with the context error (errors.Is matches context.Canceled or
 	// context.DeadlineExceeded); the upstream connection is closed
 	// immediately, which stops the server from generating further tokens.
-	Stream(ctx context.Context, req *Request, onEvent eventSink) (*Response, error)
+	Stream(ctx context.Context, req *model.Request, onEvent model.EventSink) (*model.Response, error)
 }
 
 // Compat is a bitmask of OpenAI-compatible endpoint dialects. Third-party
@@ -359,11 +365,11 @@ func mergeExtraJSON(payload any, extra map[string]any) ([]byte, error) {
 
 // splitSystem separates system messages from the conversation. Multiple
 // system messages are joined with blank lines.
-func splitSystem(messages []Message) (string, []Message) {
+func splitSystem(messages []model.Message) (string, []model.Message) {
 	var systemTexts []string
-	var rest []Message
+	var rest []model.Message
 	for _, m := range messages {
-		if m.Role == RoleSystem {
+		if m.Role == model.RoleSystem {
 			systemTexts = append(systemTexts, m.Text())
 			continue
 		}

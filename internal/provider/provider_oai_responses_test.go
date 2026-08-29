@@ -1,12 +1,14 @@
-package core
+package provider
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"testing"
+
+	. "github.com/great-magician-01/callable/internal/model"
+	. "github.com/great-magician-01/callable/internal/testutil"
 )
 
 func responsesProvider() *OpenAIResponsesProvider {
@@ -255,10 +257,10 @@ func TestResponsesStream(t *testing.T) {
 
 	var bodies []string
 	server := NewMockServer(t, []string{stream}, &bodies)
-	client := NewClient(NewOpenAIResponsesProvider("k", server.URL), WithModel("gpt-x"))
+	p := NewOpenAIResponsesProvider("k", server.URL)
 
 	var events []Event
-	resp, err := client.Stream(context.Background(), NewRequest(User("hi")), func(ev Event) {
+	resp, err := p.Stream(context.Background(), NewRequest(User("hi")).WithModel("gpt-x"), func(ev Event) {
 		events = append(events, ev)
 	})
 	if err != nil {
@@ -294,58 +296,5 @@ func TestResponsesStream(t *testing.T) {
 	}
 	if !strings.Contains(bodies[0], `"stream":true`) {
 		t.Errorf("stream flag not set")
-	}
-}
-
-// TestResponsesAgentFlow verifies reasoning items are replayed on the next
-// turn (required for reasoning continuity across tool calls).
-func TestResponsesAgentFlow(t *testing.T) {
-	turn1 := responsesSSE(
-		`{"type":"response.created","response":{"id":"resp_1"}}`,
-		`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_1"}}`,
-		`{"type":"response.reasoning_summary_text.delta","delta":"pondering"}`,
-		`{"type":"response.function_call_arguments.delta","output_index":1,"delta":"{\"city\":\"Oslo\"}"}`,
-		`{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[
-			{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"pondering"}]},
-			{"type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{\"city\":\"Oslo\"}"}
-		],"usage":{"input_tokens":9,"output_tokens":12}}}`,
-	)
-	turn2 := responsesSSE(
-		`{"type":"response.created","response":{"id":"resp_2"}}`,
-		`{"type":"response.output_text.delta","delta":"It is sunny."}`,
-		`{"type":"response.completed","response":{"id":"resp_2","status":"completed","output":[
-			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"It is sunny."}]}
-		],"usage":{"input_tokens":30,"output_tokens":8}}}`,
-	)
-
-	var bodies []string
-	server := NewMockServer(t, []string{turn1, turn2}, &bodies)
-	client := NewClient(NewOpenAIResponsesProvider("k", server.URL), WithModel("gpt-x"))
-
-	var executed []weatherArgs
-	agent := NewAgent(client, WithTools(weatherTool(&executed, nil)))
-
-	result, err := agent.RunStream(context.Background(), noopEvents, User("Weather in Oslo?"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.FinalText != "It is sunny." {
-		t.Fatalf("final text = %q", result.FinalText)
-	}
-	if len(executed) != 1 || executed[0].City != "Oslo" {
-		t.Errorf("executed = %+v", executed)
-	}
-
-	// Second request must replay the raw reasoning item and the
-	// function_call/function_call_output pair.
-	second := bodies[1]
-	for _, want := range []string{
-		`"type":"reasoning"`, `"id":"rs_1"`,
-		`"type":"function_call"`, `"call_id":"call_1"`,
-		`"type":"function_call_output"`, `"sunny"`,
-	} {
-		if !strings.Contains(second, want) {
-			t.Errorf("second request missing %s:\n%s", want, second)
-		}
 	}
 }

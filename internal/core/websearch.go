@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
+
+	provider "github.com/great-magician-01/callable/internal/provider"
 )
 
 // DefaultWebSearchToolName is the name of the Tavily-backed fallback
@@ -18,79 +19,6 @@ const DefaultWebSearchToolName = "web_search"
 // performs the actual search when the client echoes the call arguments back
 // as the tool result.
 const kimiWebSearchToolName = "$web_search"
-
-// webSearchSupport classifies a provider's built-in (server-side) web-search
-// capability.
-type webSearchSupport int
-
-const (
-	// webSearchNone means the endpoint has no built-in web search; the agent
-	// falls back to the Tavily tool when a key is configured.
-	webSearchNone webSearchSupport = iota
-	// webSearchServer means the endpoint executes searches server-side
-	// (GLM/Z.AI, Qwen, Anthropic, OpenAI Responses); the provider adapter
-	// injects the right wire fields and no client-side round trip is needed.
-	webSearchServer
-	// webSearchEcho is Kimi's builtin-function protocol: the model calls
-	// $web_search and the client echoes the arguments back as the tool
-	// result; the server performs the search on the next request.
-	webSearchEcho
-)
-
-// webSearchCapable is implemented by the built-in providers. The method is
-// unexported, so external Provider implementations report webSearchNone and
-// use the Tavily fallback.
-type webSearchCapable interface {
-	supportsWebSearch() webSearchSupport
-}
-
-// supportsWebSearch reports the built-in web-search support of a Chat
-// Completions endpoint: Kimi (echo protocol), GLM/Z.AI and Qwen (server-side,
-// detected via the Compat dialect).
-func (p *OpenAIProvider) supportsWebSearch() webSearchSupport {
-	if isMoonshotHost(p.api.cfg.baseURL) {
-		return webSearchEcho
-	}
-	if p.compat&(CompatGLM|CompatQwen) != 0 {
-		return webSearchServer
-	}
-	return webSearchNone
-}
-
-// supportsWebSearch reports built-in web search for the official OpenAI
-// Responses endpoint ({"type":"web_search"} hosted tool).
-func (p *OpenAIResponsesProvider) supportsWebSearch() webSearchSupport {
-	if isOfficialOpenAI(p.api.cfg.baseURL) {
-		return webSearchServer
-	}
-	return webSearchNone
-}
-
-// supportsWebSearch reports built-in web search for the official Anthropic
-// endpoint (web_search_20250305 server tool). Anthropic-compatible
-// third-party endpoints are not assumed to support it.
-func (p *AnthropicProvider) supportsWebSearch() webSearchSupport {
-	if isOfficialAnthropic(p.api.cfg.baseURL) {
-		return webSearchServer
-	}
-	return webSearchNone
-}
-
-func isMoonshotHost(baseURL string) bool {
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return false
-	}
-	return strings.Contains(strings.ToLower(u.Host), "moonshot")
-}
-
-func isOfficialAnthropic(baseURL string) bool {
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return false
-	}
-	return strings.EqualFold(u.Host, "api.anthropic.com")
-}
 
 // ── Agent options ──────────────────────────────────────────────────────────
 
@@ -122,15 +50,12 @@ func (a *Agent) resolveWebSearch() {
 	if !enabled {
 		return
 	}
-	support := webSearchNone
-	if p, ok := a.client.Provider().(webSearchCapable); ok {
-		support = p.supportsWebSearch()
-	}
+	support := provider.SupportsWebSearch(a.client.Provider())
 	switch support {
-	case webSearchEcho:
+	case provider.WebSearchEcho:
 		a.tools.add(newKimiWebSearchTool())
 		a.webSearchBuiltin = true
-	case webSearchServer:
+	case provider.WebSearchServer:
 		a.webSearchBuiltin = true
 	default:
 		if a.tavilyKey != "" {

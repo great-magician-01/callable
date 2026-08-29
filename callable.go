@@ -26,8 +26,8 @@
 //	result, err := agent.Run(ctx, callable.User("Hello!"))
 //
 // This file is the single public entry point of the module; the
-// implementation lives in internal/model and internal/core and is re-exported
-// here.
+// implementation lives in the internal sub-packages (model, provider, core)
+// and is re-exported here.
 package callable
 
 import (
@@ -37,6 +37,7 @@ import (
 
 	core "github.com/great-magician-01/callable/internal/core"
 	model "github.com/great-magician-01/callable/internal/model"
+	provider "github.com/great-magician-01/callable/internal/provider"
 )
 
 // ── Messages and content parts ─────────────────────────────────────────────
@@ -210,7 +211,7 @@ const (
 
 type (
 	// APIError is a non-2xx provider response or a transport failure.
-	APIError = core.APIError
+	APIError = provider.APIError
 	// MaxTurnsError is returned when an agent run exceeds its turn limit; its
 	// Partial field carries the partial result.
 	MaxTurnsError = core.MaxTurnsError
@@ -330,27 +331,27 @@ func WithSubAgentMaxTurns(n int) SubAgentOption { return core.WithSubAgentMaxTur
 
 type (
 	// Provider converts unified requests to a specific wire format.
-	Provider = core.Provider
+	Provider = provider.Provider
 	// Compat is a bitmask of OpenAI-compatible endpoint dialects.
-	Compat = core.Compat
+	Compat = provider.Compat
 	// ProviderOption configures a provider.
-	ProviderOption = core.ProviderOption
+	ProviderOption = provider.ProviderOption
 
 	// OpenAIProvider talks the OpenAI Chat Completions format.
-	OpenAIProvider = core.OpenAIProvider
+	OpenAIProvider = provider.OpenAIProvider
 	// OpenAIResponsesProvider talks the OpenAI Responses format.
-	OpenAIResponsesProvider = core.OpenAIResponsesProvider
+	OpenAIResponsesProvider = provider.OpenAIResponsesProvider
 	// AnthropicProvider talks the Anthropic Messages format.
-	AnthropicProvider = core.AnthropicProvider
+	AnthropicProvider = provider.AnthropicProvider
 )
 
 // Endpoint dialects (auto-detected from the base URL, or set with WithCompat).
 const (
-	CompatNone     = core.CompatNone
-	CompatGLM      = core.CompatGLM
-	CompatQwen     = core.CompatQwen
-	CompatDeepSeek = core.CompatDeepSeek
-	CompatArk      = core.CompatArk
+	CompatNone     = provider.CompatNone
+	CompatGLM      = provider.CompatGLM
+	CompatQwen     = provider.CompatQwen
+	CompatDeepSeek = provider.CompatDeepSeek
+	CompatArk      = provider.CompatArk
 )
 
 // Well-known endpoint base URLs. Pass one as the baseURL argument of the
@@ -365,36 +366,36 @@ const (
 const (
 	// OpenAIURL is the official OpenAI API root (Chat Completions and
 	// Responses).
-	OpenAIURL = core.OpenAIURL
+	OpenAIURL = provider.OpenAIURL
 	// AnthropicURL is the official Anthropic API root.
-	AnthropicURL = core.AnthropicURL
+	AnthropicURL = provider.AnthropicURL
 
 	// DeepSeekURL is DeepSeek's OpenAI-compatible endpoint.
-	DeepSeekURL = core.DeepSeekURL
+	DeepSeekURL = provider.DeepSeekURL
 	// GLMURL is Zhipu GLM's (bigmodel.cn) OpenAI-compatible endpoint.
-	GLMURL = core.GLMURL
+	GLMURL = provider.GLMURL
 	// ZAIURL is Z.AI's OpenAI-compatible endpoint.
-	ZAIURL = core.ZAIURL
+	ZAIURL = provider.ZAIURL
 	// QwenURL is Alibaba DashScope's OpenAI-compatible endpoint.
-	QwenURL = core.QwenURL
+	QwenURL = provider.QwenURL
 	// ArkURL is Volcano Ark's OpenAI-compatible endpoint.
-	ArkURL = core.ArkURL
+	ArkURL = provider.ArkURL
 	// KimiURL is Moonshot AI's (Kimi) OpenAI-compatible endpoint for the
 	// China platform. The international platform mirrors it at
 	// https://api.moonshot.ai/v1.
-	KimiURL = core.KimiURL
+	KimiURL = provider.KimiURL
 
 	// DeepSeekAnthropicURL is DeepSeek's Anthropic-compatible endpoint.
-	DeepSeekAnthropicURL = core.DeepSeekAnthropicURL
+	DeepSeekAnthropicURL = provider.DeepSeekAnthropicURL
 	// GLMAnthropicURL is Zhipu GLM's (bigmodel.cn) Anthropic-compatible
 	// endpoint.
-	GLMAnthropicURL = core.GLMAnthropicURL
+	GLMAnthropicURL = provider.GLMAnthropicURL
 	// ZAIAnthropicURL is Z.AI's Anthropic-compatible endpoint.
-	ZAIAnthropicURL = core.ZAIAnthropicURL
+	ZAIAnthropicURL = provider.ZAIAnthropicURL
 	// KimiAnthropicURL is Moonshot AI's (Kimi) Anthropic-compatible endpoint
 	// for the China platform. The international platform mirrors it at
 	// https://api.moonshot.ai/anthropic.
-	KimiAnthropicURL = core.KimiAnthropicURL
+	KimiAnthropicURL = provider.KimiAnthropicURL
 )
 
 // NewOpenAIProvider creates an OpenAI Chat Completions provider for the given
@@ -402,14 +403,14 @@ const (
 // OpenAI-compatible endpoint (GLM, DeepSeek, Qwen, ...) works. Well-known
 // endpoints are available as constants, e.g. OpenAIURL or DeepSeekURL.
 func NewOpenAIProvider(apiKey, baseURL string, opts ...ProviderOption) *OpenAIProvider {
-	return core.NewOpenAIProvider(apiKey, baseURL, opts...)
+	return provider.NewOpenAIProvider(apiKey, baseURL, opts...)
 }
 
 // NewOpenAIResponsesProvider creates an OpenAI Responses provider for the
 // given endpoint. baseURL is the API root including any version prefix, e.g.
 // OpenAIURL.
 func NewOpenAIResponsesProvider(apiKey, baseURL string, opts ...ProviderOption) *OpenAIResponsesProvider {
-	return core.NewOpenAIResponsesProvider(apiKey, baseURL, opts...)
+	return provider.NewOpenAIResponsesProvider(apiKey, baseURL, opts...)
 }
 
 // NewAnthropicProvider creates an Anthropic Messages provider for the given
@@ -417,29 +418,29 @@ func NewOpenAIResponsesProvider(apiKey, baseURL string, opts ...ProviderOption) 
 // Anthropic-compatible third-party endpoints are available as constants, e.g.
 // DeepSeekAnthropicURL.
 func NewAnthropicProvider(apiKey, baseURL string, opts ...ProviderOption) *AnthropicProvider {
-	return core.NewAnthropicProvider(apiKey, baseURL, opts...)
+	return provider.NewAnthropicProvider(apiKey, baseURL, opts...)
 }
 
 // WithHTTPClient supplies a custom *http.Client.
-func WithHTTPClient(client *http.Client) ProviderOption { return core.WithHTTPClient(client) }
+func WithHTTPClient(client *http.Client) ProviderOption { return provider.WithHTTPClient(client) }
 
 // WithHeader adds a header to every provider request.
-func WithHeader(key, value string) ProviderOption { return core.WithHeader(key, value) }
+func WithHeader(key, value string) ProviderOption { return provider.WithHeader(key, value) }
 
 // WithRetries sets how many times transient failures (429, 5xx, network
 // errors) are retried, waiting 3s, 10s, then 30s between attempts (see
 // WithRetryBackoff to change the schedule). Default 3; pass 0 to disable.
-func WithRetries(n int) ProviderOption { return core.WithRetries(n) }
+func WithRetries(n int) ProviderOption { return provider.WithRetries(n) }
 
 // WithRetryBackoff replaces the default retry wait schedule (3s, 10s, 30s):
 // delays[i] is the wait before retry i+1, and attempts beyond the schedule
 // reuse the last delay.
 func WithRetryBackoff(delays ...time.Duration) ProviderOption {
-	return core.WithRetryBackoff(delays...)
+	return provider.WithRetryBackoff(delays...)
 }
 
 // WithCompat overrides the auto-detected endpoint dialect.
-func WithCompat(c Compat) ProviderOption { return core.WithCompat(c) }
+func WithCompat(c Compat) ProviderOption { return provider.WithCompat(c) }
 
 // ── Client ─────────────────────────────────────────────────────────────────
 

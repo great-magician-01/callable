@@ -1,13 +1,14 @@
-package core
+package provider
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"testing"
+
+	. "github.com/great-magician-01/callable/internal/model"
+	. "github.com/great-magician-01/callable/internal/testutil"
 )
 
 func antProvider() *AnthropicProvider {
@@ -277,90 +278,6 @@ func TestAntStreamAccumulation(t *testing.T) {
 	tp, _ := resp.Message.Parts[0].(ThinkingPart)
 	if tp.Signature != "sigZ" {
 		t.Errorf("signature = %q", tp.Signature)
-	}
-}
-
-func antSSE(events ...string) string {
-	var b strings.Builder
-	for _, data := range events {
-		var probe struct {
-			Type string `json:"type"`
-		}
-		_ = json.Unmarshal([]byte(data), &probe)
-		// SSE data lines must be single-line.
-		data = strings.ReplaceAll(data, "\n", "")
-		fmt.Fprintf(&b, "event: %s\ndata: %s\n\n", probe.Type, data)
-	}
-	return b.String()
-}
-
-// TestAntAgentFlow verifies the full Anthropic loop, in particular that
-// thinking blocks (with signature) and tool results are replayed correctly.
-func TestAntAgentFlow(t *testing.T) {
-	toolTurn := antSSE(
-		`{"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":1}}}`,
-		`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`,
-		`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"pondering"}}`,
-		`{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig123"}}`,
-		`{"type":"content_block_stop","index":0}`,
-		`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{}}}`,
-		`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"city\":\"Oslo\"}"}}`,
-		`{"type":"content_block_stop","index":1}`,
-		`{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":42}}`,
-		`{"type":"message_stop"}`,
-	)
-	finalTurn := antSSE(
-		`{"type":"message_start","message":{"usage":{"input_tokens":30,"output_tokens":1}}}`,
-		`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
-		`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"It is sunny."}}`,
-		`{"type":"content_block_stop","index":0}`,
-		`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":8}}`,
-		`{"type":"message_stop"}`,
-	)
-
-	var bodies []string
-	server := NewMockServer(t, []string{toolTurn, finalTurn}, &bodies)
-	client := NewClient(NewAnthropicProvider("k", server.URL), WithModel("claude-x"))
-
-	var executed []weatherArgs
-	agent := NewAgent(client, WithTools(weatherTool(&executed, nil)))
-
-	var thinkingDeltas int
-	result, err := agent.RunStream(context.Background(), func(ev Event) {
-		if _, ok := ev.(ThinkingDeltaEvent); ok {
-			thinkingDeltas++
-		}
-	}, User("Weather in Oslo?"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.FinalText != "It is sunny." {
-		t.Fatalf("final text = %q", result.FinalText)
-	}
-	if len(executed) != 1 || executed[0].City != "Oslo" {
-		t.Errorf("executed = %+v", executed)
-	}
-	if thinkingDeltas != 1 {
-		t.Errorf("thinking deltas = %d", thinkingDeltas)
-	}
-	if result.Usage.InputTokens != 40 || result.Usage.ContextTokens != 40 { // accumulated across turns
-		t.Errorf("usage = %+v", result.Usage)
-	}
-	if result.LastTurnUsage.InputTokens != 30 || result.LastTurnUsage.ContextTokens != 30 {
-		t.Errorf("last turn usage = %+v", result.LastTurnUsage)
-	}
-
-	// Second request: assistant thinking block with signature, tool_use, and
-	// a tool_result block in a user message.
-	second := bodies[1]
-	for _, want := range []string{
-		`"type":"thinking"`, `"signature":"sig123"`,
-		`"type":"tool_use"`, `"id":"toolu_1"`,
-		`"type":"tool_result"`, `"tool_use_id":"toolu_1"`,
-	} {
-		if !strings.Contains(second, want) {
-			t.Errorf("second request missing %s:\n%s", want, second)
-		}
 	}
 }
 

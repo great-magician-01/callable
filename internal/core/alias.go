@@ -2,14 +2,17 @@ package core
 
 import (
 	"context"
-	"encoding/json"
+	"net/http"
+	"time"
 
 	model "github.com/great-magician-01/callable/internal/model"
+	provider "github.com/great-magician-01/callable/internal/provider"
 )
 
-// The unified message model lives in internal/model. These aliases and thin
-// wrappers keep the core code that has not been split out yet (providers,
-// client, agent loop) and its tests compiling unchanged.
+// The unified message model lives in internal/model and the providers in
+// internal/provider. These aliases and thin wrappers keep the core code that
+// has not been split out yet (client, agent loop) and its tests compiling
+// unchanged.
 
 type (
 	Role    = model.Role
@@ -120,22 +123,62 @@ func JSONSchemaFor[T any](name string, strict bool) ResponseFormat {
 	return model.JSONSchemaFor[T](name, strict)
 }
 
-// Small helpers that lived in the moved model files but are still used by the
-// provider adapters.
+// ── Providers (internal/provider) ─────────────────────────────────────────
 
-// schemaName returns the schema name providers require, defaulting blanks.
-func schemaName(f *ResponseFormat) string {
-	if f.Name != "" {
-		return f.Name
-	}
-	return "output"
+type (
+	Provider                = provider.Provider
+	Compat                  = provider.Compat
+	ProviderOption          = provider.ProviderOption
+	OpenAIProvider          = provider.OpenAIProvider
+	OpenAIResponsesProvider = provider.OpenAIResponsesProvider
+	AnthropicProvider       = provider.AnthropicProvider
+
+	APIError = provider.APIError
+)
+
+const (
+	CompatNone     = provider.CompatNone
+	CompatGLM      = provider.CompatGLM
+	CompatQwen     = provider.CompatQwen
+	CompatDeepSeek = provider.CompatDeepSeek
+	CompatArk      = provider.CompatArk
+
+	OpenAIURL    = provider.OpenAIURL
+	AnthropicURL = provider.AnthropicURL
+
+	DeepSeekURL = provider.DeepSeekURL
+	GLMURL      = provider.GLMURL
+	ZAIURL      = provider.ZAIURL
+	QwenURL     = provider.QwenURL
+	ArkURL      = provider.ArkURL
+	KimiURL     = provider.KimiURL
+
+	DeepSeekAnthropicURL = provider.DeepSeekAnthropicURL
+	GLMAnthropicURL      = provider.GLMAnthropicURL
+	ZAIAnthropicURL      = provider.ZAIAnthropicURL
+	KimiAnthropicURL     = provider.KimiAnthropicURL
+)
+
+func NewOpenAIProvider(apiKey, baseURL string, opts ...ProviderOption) *OpenAIProvider {
+	return provider.NewOpenAIProvider(apiKey, baseURL, opts...)
 }
 
-// mustJSON marshals v to a JSON string, returning "{}" on error.
-func mustJSON(v any) string {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return "{}"
-	}
-	return string(b)
+func NewOpenAIResponsesProvider(apiKey, baseURL string, opts ...ProviderOption) *OpenAIResponsesProvider {
+	return provider.NewOpenAIResponsesProvider(apiKey, baseURL, opts...)
 }
+
+func NewAnthropicProvider(apiKey, baseURL string, opts ...ProviderOption) *AnthropicProvider {
+	return provider.NewAnthropicProvider(apiKey, baseURL, opts...)
+}
+
+func WithHTTPClient(client *http.Client) ProviderOption { return provider.WithHTTPClient(client) }
+
+func WithHeader(key, value string) ProviderOption { return provider.WithHeader(key, value) }
+
+func WithRetries(n int) ProviderOption { return provider.WithRetries(n) }
+
+func WithRetryBackoff(delays ...time.Duration) ProviderOption {
+	return provider.WithRetryBackoff(delays...)
+}
+
+func WithCompat(c Compat) ProviderOption { return provider.WithCompat(c) }

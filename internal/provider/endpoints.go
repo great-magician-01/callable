@@ -1,4 +1,4 @@
-package core
+package provider
 
 // Well-known endpoint base URLs. Pass one as the baseURL argument of the
 // provider constructors instead of spelling out the address:

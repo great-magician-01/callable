@@ -1,4 +1,4 @@
-package core
+package provider
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	model "github.com/great-magician-01/callable/internal/model"
 )
 
 // AnthropicProvider talks the Anthropic Messages format
@@ -129,7 +131,7 @@ type antToolResultBlock struct {
 
 // ── request building ───────────────────────────────────────────────────────
 
-func (p *AnthropicProvider) buildPayload(req *Request, stream bool) ([]byte, error) {
+func (p *AnthropicProvider) buildPayload(req *model.Request, stream bool) ([]byte, error) {
 	system, messages, err := p.convertMessages(req.Messages)
 	if err != nil {
 		return nil, err
@@ -152,13 +154,13 @@ func (p *AnthropicProvider) buildPayload(req *Request, stream bool) ([]byte, err
 			InputSchema: schema,
 		})
 	}
-	if req.WebSearch && p.supportsWebSearch() == webSearchServer {
+	if req.WebSearch && p.supportsWebSearch() == WebSearchServer {
 		// Anthropic server-side web search; the server_tool_use and
 		// web_search_tool_result blocks it emits are not mapped into the
 		// unified message, only the final text is.
 		payload.Tools = append(payload.Tools, map[string]any{
 			"type": "web_search_20250305",
-			"name": DefaultWebSearchToolName,
+			"name": defaultWebSearchToolName,
 		})
 	}
 
@@ -192,7 +194,7 @@ func (p *AnthropicProvider) buildPayload(req *Request, stream bool) ([]byte, err
 // output_config.format. Anthropic has no schema-less JSON mode, so a
 // free-form JSON request becomes a permissive object schema. The Strict flag
 // is inherent: Anthropic always enforces the schema.
-func antOutputConfigFor(f *ResponseFormat) *antOutputConfig {
+func antOutputConfigFor(f *model.ResponseFormat) *antOutputConfig {
 	if f == nil {
 		return nil
 	}
@@ -207,7 +209,7 @@ func antOutputConfigFor(f *ResponseFormat) *antOutputConfig {
 // same-role messages are merged (Anthropic expects alternating turns; a
 // thinking block is preserved with its signature so tool-use loops continue
 // correctly).
-func (p *AnthropicProvider) convertMessages(messages []Message) (string, []antMessage, error) {
+func (p *AnthropicProvider) convertMessages(messages []model.Message) (string, []antMessage, error) {
 	system, rest := splitSystem(messages)
 	var out []antMessage
 	appendBlocks := func(role string, blocks []any) {
@@ -223,15 +225,15 @@ func (p *AnthropicProvider) convertMessages(messages []Message) (string, []antMe
 
 	for _, m := range rest {
 		role := "user"
-		if m.Role == RoleAssistant {
+		if m.Role == model.RoleAssistant {
 			role = "assistant"
 		}
 		var blocks []any
 		for _, part := range m.Parts {
 			switch v := part.(type) {
-			case TextPart:
+			case model.TextPart:
 				blocks = append(blocks, antTextBlock{Type: "text", Text: v.Text})
-			case ThinkingPart:
+			case model.ThinkingPart:
 				if v.Text == "" && v.Signature == "" {
 					continue
 				}
@@ -240,7 +242,7 @@ func (p *AnthropicProvider) convertMessages(messages []Message) (string, []antMe
 					Thinking:  v.Text,
 					Signature: v.Signature,
 				})
-			case ToolCallPart:
+			case model.ToolCallPart:
 				input := json.RawMessage(v.Arguments)
 				if strings.TrimSpace(v.Arguments) == "" {
 					input = json.RawMessage("{}")
@@ -251,7 +253,7 @@ func (p *AnthropicProvider) convertMessages(messages []Message) (string, []antMe
 					Name:  v.Name,
 					Input: input,
 				})
-			case ToolResultPart:
+			case model.ToolResultPart:
 				content := v.Content
 				if v.IsError && !strings.HasPrefix(content, "Error") {
 					// Surface the failure to the model.
@@ -263,11 +265,11 @@ func (p *AnthropicProvider) convertMessages(messages []Message) (string, []antMe
 					Content:   content,
 					IsError:   v.IsError,
 				})
-			case ImagePart:
+			case model.ImagePart:
 				if role != "user" {
 					continue // images are user-only input
 				}
-				resolved, err := resolveImage(v)
+				resolved, err := model.ResolveImage(v)
 				if err != nil {
 					return "", nil, err
 				}
@@ -303,8 +305,8 @@ type antUsageBody struct {
 	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 }
 
-func (u antUsageBody) toUsage() Usage {
-	return Usage{
+func (u antUsageBody) toUsage() model.Usage {
+	return model.Usage{
 		InputTokens:      u.InputTokens,
 		OutputTokens:     u.OutputTokens,
 		CacheReadTokens:  u.CacheReadInputTokens,
@@ -334,7 +336,7 @@ type antResponseEnvelope struct {
 }
 
 // Create performs a non-streaming request.
-func (p *AnthropicProvider) Create(ctx context.Context, req *Request) (*Response, error) {
+func (p *AnthropicProvider) Create(ctx context.Context, req *model.Request) (*model.Response, error) {
 	payload, err := p.buildPayload(req, false)
 	if err != nil {
 		return nil, err
@@ -346,7 +348,7 @@ func (p *AnthropicProvider) Create(ctx context.Context, req *Request) (*Response
 	return p.parseResponse(body)
 }
 
-func (p *AnthropicProvider) parseResponse(body []byte) (*Response, error) {
+func (p *AnthropicProvider) parseResponse(body []byte) (*model.Response, error) {
 	var env antResponseEnvelope
 	if err := json.Unmarshal(body, &env); err != nil {
 		return nil, &APIError{
@@ -366,44 +368,44 @@ func (p *AnthropicProvider) parseResponse(body []byte) (*Response, error) {
 	return assembleAntMessage(env.Content, mapAntStopReason(env.StopReason), env.Usage.toUsage()), nil
 }
 
-func mapAntStopReason(reason string) StopReason {
+func mapAntStopReason(reason string) model.StopReason {
 	switch reason {
 	case "end_turn", "stop_sequence":
-		return StopReasonEndTurn
+		return model.StopReasonEndTurn
 	case "tool_use":
-		return StopReasonToolCalls
+		return model.StopReasonToolCalls
 	case "max_tokens":
-		return StopReasonMaxTokens
+		return model.StopReasonMaxTokens
 	default:
-		return StopReasonOther
+		return model.StopReasonOther
 	}
 }
 
 // assembleAntMessage builds the unified Response from content blocks.
-func assembleAntMessage(blocks []antContentBlock, stop StopReason, usage Usage) *Response {
-	assistant := Message{Role: RoleAssistant}
-	resp := &Response{Usage: usage, StopReason: stop}
+func assembleAntMessage(blocks []antContentBlock, stop model.StopReason, usage model.Usage) *model.Response {
+	assistant := model.Message{Role: model.RoleAssistant}
+	resp := &model.Response{Usage: usage, StopReason: stop}
 	for _, b := range blocks {
 		switch b.Type {
 		case "thinking":
-			assistant.Parts = append(assistant.Parts, ThinkingPart{
+			assistant.Parts = append(assistant.Parts, model.ThinkingPart{
 				Text:      b.Thinking,
 				Signature: b.Signature,
 			})
 		case "text":
-			assistant.Parts = append(assistant.Parts, TextPart{Text: b.Text})
+			assistant.Parts = append(assistant.Parts, model.TextPart{Text: b.Text})
 			resp.Text += b.Text
 		case "tool_use":
 			args := compactJSON(string(b.Input))
 			if strings.TrimSpace(args) == "" {
 				args = "{}"
 			}
-			assistant.Parts = append(assistant.Parts, ToolCallPart{
+			assistant.Parts = append(assistant.Parts, model.ToolCallPart{
 				ID:        b.ID,
 				Name:      b.Name,
 				Arguments: args,
 			})
-			resp.ToolCalls = append(resp.ToolCalls, ToolCall{
+			resp.ToolCalls = append(resp.ToolCalls, model.ToolCall{
 				ID:        b.ID,
 				Name:      b.Name,
 				Arguments: args,
@@ -435,7 +437,7 @@ type antStreamState struct {
 }
 
 // Stream performs a streaming request, reassembling content_block events.
-func (p *AnthropicProvider) Stream(ctx context.Context, req *Request, onEvent eventSink) (*Response, error) {
+func (p *AnthropicProvider) Stream(ctx context.Context, req *model.Request, onEvent model.EventSink) (*model.Response, error) {
 	payload, err := p.buildPayload(req, true)
 	if err != nil {
 		return nil, err
@@ -463,13 +465,13 @@ func (p *AnthropicProvider) Stream(ctx context.Context, req *Request, onEvent ev
 	}
 	resp := state.assemble()
 	if onEvent != nil {
-		onEvent(MessageDoneEvent{Message: resp.Message, Usage: resp.Usage, StopReason: resp.StopReason})
+		onEvent(model.MessageDoneEvent{Message: resp.Message, Usage: resp.Usage, StopReason: resp.StopReason})
 	}
 	return resp, nil
 }
 
 // assemble builds the response from the blocks accumulated so far.
-func (s *antStreamState) assemble() *Response {
+func (s *antStreamState) assemble() *model.Response {
 	if s.stopReason == "" {
 		// Stream ended without message_delta; infer the stop reason.
 		s.stopReason = "end_turn"
@@ -499,7 +501,7 @@ func (s *antStreamState) assemble() *Response {
 	return assembleAntMessage(blocks, mapAntStopReason(s.stopReason), s.usage.toUsage())
 }
 
-func (s *antStreamState) processEvent(ev sseMessage, onEvent eventSink) error {
+func (s *antStreamState) processEvent(ev sseMessage, onEvent model.EventSink) error {
 	var env struct {
 		Type    string `json:"type"`
 		Message struct {
@@ -526,7 +528,7 @@ func (s *antStreamState) processEvent(ev sseMessage, onEvent eventSink) error {
 			s.started = true
 			s.usage = env.Message.Usage
 			if onEvent != nil {
-				onEvent(MessageStartEvent{})
+				onEvent(model.MessageStartEvent{})
 			}
 		}
 	case "content_block_start":
@@ -541,7 +543,7 @@ func (s *antStreamState) processEvent(ev sseMessage, onEvent eventSink) error {
 		}
 		s.blocks[env.Index] = block
 		if block.Type == "tool_use" && onEvent != nil {
-			onEvent(ToolCallDeltaEvent{Index: env.Index, ID: block.ID, Name: block.Name})
+			onEvent(model.ToolCallDeltaEvent{Index: env.Index, ID: block.ID, Name: block.Name})
 		}
 	case "content_block_delta":
 		if env.Index >= len(s.blocks) {
@@ -562,19 +564,19 @@ func (s *antStreamState) processEvent(ev sseMessage, onEvent eventSink) error {
 		case "text_delta":
 			block.Text.WriteString(delta.Text)
 			if onEvent != nil {
-				onEvent(TextDeltaEvent{Delta: delta.Text})
+				onEvent(model.TextDeltaEvent{Delta: delta.Text})
 			}
 		case "thinking_delta":
 			block.Thinking.WriteString(delta.Thinking)
 			if onEvent != nil {
-				onEvent(ThinkingDeltaEvent{Delta: delta.Thinking})
+				onEvent(model.ThinkingDeltaEvent{Delta: delta.Thinking})
 			}
 		case "signature_delta":
 			block.Signature += delta.Signature
 		case "input_json_delta":
 			block.inputJSON.WriteString(delta.PartialJSON)
 			if onEvent != nil {
-				onEvent(ToolCallDeltaEvent{Index: env.Index, ArgsDelta: delta.PartialJSON})
+				onEvent(model.ToolCallDeltaEvent{Index: env.Index, ArgsDelta: delta.PartialJSON})
 			}
 		}
 	case "content_block_stop":

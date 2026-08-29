@@ -1,4 +1,4 @@
-package core
+package provider
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	model "github.com/great-magician-01/callable/internal/model"
 )
 
 // OpenAIProvider talks the OpenAI Chat Completions format
@@ -111,14 +113,14 @@ type oaiChatFunctionDef struct {
 
 // ── request building ───────────────────────────────────────────────────────
 
-func (p *OpenAIProvider) buildPayload(req *Request, stream bool) ([]byte, error) {
+func (p *OpenAIProvider) buildPayload(req *model.Request, stream bool) ([]byte, error) {
 	messages, err := p.convertMessages(req.Messages)
 	if err != nil {
 		return nil, err
 	}
 	payload := oaiChatPayload{Model: req.Model, Messages: messages}
 
-	kimiBuiltin := req.WebSearch && p.supportsWebSearch() == webSearchEcho
+	kimiBuiltin := req.WebSearch && p.supportsWebSearch() == WebSearchEcho
 	for _, t := range req.Tools {
 		def := t.Definition()
 		if kimiBuiltin && def.Name == kimiWebSearchToolName {
@@ -232,7 +234,7 @@ func (p *OpenAIProvider) buildPayload(req *Request, stream bool) ([]byte, error)
 
 // oaiChatResponseFormat maps the unified ResponseFormat onto the Chat
 // Completions response_format field.
-func oaiChatResponseFormat(f *ResponseFormat) any {
+func oaiChatResponseFormat(f *model.ResponseFormat) any {
 	if f == nil {
 		return nil
 	}
@@ -276,7 +278,7 @@ func appendSchemaHint(messages []oaiChatMessage, schema map[string]any) []oaiCha
 // messages are merged into a leading system message; tool results become
 // role="tool" messages; images become image_url parts (data URLs for local
 // files).
-func (p *OpenAIProvider) convertMessages(messages []Message) ([]oaiChatMessage, error) {
+func (p *OpenAIProvider) convertMessages(messages []model.Message) ([]oaiChatMessage, error) {
 	system, rest := splitSystem(messages)
 	var out []oaiChatMessage
 	if system != "" {
@@ -286,25 +288,25 @@ func (p *OpenAIProvider) convertMessages(messages []Message) ([]oaiChatMessage, 
 		var (
 			text        strings.Builder
 			reasoning   strings.Builder
-			images      []ImagePart
+			images      []model.ImagePart
 			toolCalls   []oaiToolCallWire
-			toolResults []ToolResultPart
+			toolResults []model.ToolResultPart
 		)
 		for _, part := range m.Parts {
 			switch v := part.(type) {
-			case TextPart:
+			case model.TextPart:
 				text.WriteString(v.Text)
-			case ImagePart:
+			case model.ImagePart:
 				images = append(images, v)
-			case ThinkingPart:
+			case model.ThinkingPart:
 				reasoning.WriteString(v.Text)
-			case ToolCallPart:
+			case model.ToolCallPart:
 				toolCalls = append(toolCalls, oaiToolCallWire{
 					ID:       v.ID,
 					Type:     "function",
 					Function: oaiFunctionCallWire{Name: v.Name, Arguments: v.Arguments},
 				})
-			case ToolResultPart:
+			case model.ToolResultPart:
 				toolResults = append(toolResults, v)
 			}
 		}
@@ -319,7 +321,7 @@ func (p *OpenAIProvider) convertMessages(messages []Message) ([]oaiChatMessage, 
 		}
 
 		switch m.Role {
-		case RoleAssistant:
+		case model.RoleAssistant:
 			msg := oaiChatMessage{Role: "assistant", ToolCalls: toolCalls}
 			if text.Len() > 0 {
 				msg.Content = text.String()
@@ -339,7 +341,7 @@ func (p *OpenAIProvider) convertMessages(messages []Message) ([]oaiChatMessage, 
 				parts = append(parts, oaiUserContentPart{Type: "text", Text: text.String()})
 			}
 			for _, img := range images {
-				resolved, err := resolveImage(img)
+				resolved, err := model.ResolveImage(img)
 				if err != nil {
 					return nil, err
 				}
@@ -380,11 +382,11 @@ type oaiUsage struct {
 	PromptCacheMissTokens int `json:"prompt_cache_miss_tokens"`
 }
 
-func (u *oaiUsage) toUsage() Usage {
+func (u *oaiUsage) toUsage() model.Usage {
 	if u == nil {
-		return Usage{}
+		return model.Usage{}
 	}
-	usage := Usage{
+	usage := model.Usage{
 		InputTokens:  u.PromptTokens,
 		OutputTokens: u.CompletionTokens,
 		// PromptTokens already includes cached tokens, so it is the full
@@ -417,7 +419,7 @@ type oaiChatResponseEnvelope struct {
 }
 
 // Create performs a non-streaming request.
-func (p *OpenAIProvider) Create(ctx context.Context, req *Request) (*Response, error) {
+func (p *OpenAIProvider) Create(ctx context.Context, req *model.Request) (*model.Response, error) {
 	payload, err := p.buildPayload(req, false)
 	if err != nil {
 		return nil, err
@@ -429,7 +431,7 @@ func (p *OpenAIProvider) Create(ctx context.Context, req *Request) (*Response, e
 	return p.parseResponse(body)
 }
 
-func (p *OpenAIProvider) parseResponse(body []byte) (*Response, error) {
+func (p *OpenAIProvider) parseResponse(body []byte) (*model.Response, error) {
 	var env oaiChatResponseEnvelope
 	if err := json.Unmarshal(body, &env); err != nil {
 		return nil, &APIError{
@@ -454,25 +456,25 @@ func (p *OpenAIProvider) parseResponse(body []byte) (*Response, error) {
 		}
 	}
 	choice := env.Choices[0]
-	assistant := Message{Role: RoleAssistant}
+	assistant := model.Message{Role: model.RoleAssistant}
 	if thinking := firstNonEmpty(choice.Message.ReasoningContent, choice.Message.Reasoning); thinking != "" {
-		assistant.Parts = append(assistant.Parts, ThinkingPart{Text: thinking})
+		assistant.Parts = append(assistant.Parts, model.ThinkingPart{Text: thinking})
 	}
 	if choice.Message.Content != "" {
-		assistant.Parts = append(assistant.Parts, TextPart{Text: choice.Message.Content})
+		assistant.Parts = append(assistant.Parts, model.TextPart{Text: choice.Message.Content})
 	}
-	resp := &Response{Text: choice.Message.Content}
+	resp := &model.Response{Text: choice.Message.Content}
 	for _, tc := range choice.Message.ToolCalls {
 		if tc.Function.Name == "" && tc.ID == "" {
 			continue
 		}
 		args := compactJSON(tc.Function.Arguments)
-		assistant.Parts = append(assistant.Parts, ToolCallPart{
+		assistant.Parts = append(assistant.Parts, model.ToolCallPart{
 			ID:        tc.ID,
 			Name:      tc.Function.Name,
 			Arguments: args,
 		})
-		resp.ToolCalls = append(resp.ToolCalls, ToolCall{
+		resp.ToolCalls = append(resp.ToolCalls, model.ToolCall{
 			ID:        tc.ID,
 			Name:      tc.Function.Name,
 			Arguments: args,
@@ -484,21 +486,21 @@ func (p *OpenAIProvider) parseResponse(body []byte) (*Response, error) {
 	return resp, nil
 }
 
-func mapChatFinishReason(reason string, toolCallCount int) StopReason {
+func mapChatFinishReason(reason string, toolCallCount int) model.StopReason {
 	switch reason {
 	case "tool_calls":
-		return StopReasonToolCalls
+		return model.StopReasonToolCalls
 	case "stop", "end_turn":
-		return StopReasonEndTurn
+		return model.StopReasonEndTurn
 	case "length":
-		return StopReasonMaxTokens
+		return model.StopReasonMaxTokens
 	case "":
 		if toolCallCount > 0 {
-			return StopReasonToolCalls
+			return model.StopReasonToolCalls
 		}
-		return StopReasonOther
+		return model.StopReasonOther
 	default:
-		return StopReasonOther
+		return model.StopReasonOther
 	}
 }
 
@@ -519,7 +521,7 @@ type chatStreamState struct {
 
 // Stream performs a streaming request. Tool-call arguments arrive as
 // index-addressed fragments and are reassembled here.
-func (p *OpenAIProvider) Stream(ctx context.Context, req *Request, onEvent eventSink) (*Response, error) {
+func (p *OpenAIProvider) Stream(ctx context.Context, req *model.Request, onEvent model.EventSink) (*model.Response, error) {
 	payload, err := p.buildPayload(req, true)
 	if err != nil {
 		return nil, err
@@ -554,12 +556,12 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req *Request, onEvent event
 		return nil, err
 	}
 	if onEvent != nil {
-		onEvent(MessageDoneEvent{Message: resp.Message, Usage: resp.Usage, StopReason: resp.StopReason})
+		onEvent(model.MessageDoneEvent{Message: resp.Message, Usage: resp.Usage, StopReason: resp.StopReason})
 	}
 	return resp, nil
 }
 
-func (s *chatStreamState) processChunk(data string, onEvent eventSink) error {
+func (s *chatStreamState) processChunk(data string, onEvent model.EventSink) error {
 	var chunk struct {
 		Choices []struct {
 			Delta struct {
@@ -587,7 +589,7 @@ func (s *chatStreamState) processChunk(data string, onEvent eventSink) error {
 	if !s.started {
 		s.started = true
 		if onEvent != nil {
-			onEvent(MessageStartEvent{})
+			onEvent(model.MessageStartEvent{})
 		}
 	}
 	for i := range chunk.Choices {
@@ -596,13 +598,13 @@ func (s *chatStreamState) processChunk(data string, onEvent eventSink) error {
 		if delta.Content != "" {
 			s.text.WriteString(delta.Content)
 			if onEvent != nil {
-				onEvent(TextDeltaEvent{Delta: delta.Content})
+				onEvent(model.TextDeltaEvent{Delta: delta.Content})
 			}
 		}
 		if thinking := firstNonEmpty(delta.ReasoningContent, delta.Reasoning); thinking != "" {
 			s.thinking.WriteString(thinking)
 			if onEvent != nil {
-				onEvent(ThinkingDeltaEvent{Delta: thinking})
+				onEvent(model.ThinkingDeltaEvent{Delta: thinking})
 			}
 		}
 		for pos, tc := range delta.ToolCalls {
@@ -623,7 +625,7 @@ func (s *chatStreamState) processChunk(data string, onEvent eventSink) error {
 			}
 			acc.Function.Arguments += tc.Function.Arguments
 			if onEvent != nil {
-				onEvent(ToolCallDeltaEvent{
+				onEvent(model.ToolCallDeltaEvent{
 					Index:     idx,
 					ID:        firstIf(isNew, tc.ID, ""),
 					Name:      firstIf(isNew, tc.Function.Name, ""),
@@ -642,26 +644,26 @@ func (s *chatStreamState) processChunk(data string, onEvent eventSink) error {
 	return nil
 }
 
-func (s *chatStreamState) assemble() (*Response, error) {
-	assistant := Message{Role: RoleAssistant}
+func (s *chatStreamState) assemble() (*model.Response, error) {
+	assistant := model.Message{Role: model.RoleAssistant}
 	if s.thinking.Len() > 0 {
-		assistant.Parts = append(assistant.Parts, ThinkingPart{Text: s.thinking.String()})
+		assistant.Parts = append(assistant.Parts, model.ThinkingPart{Text: s.thinking.String()})
 	}
 	if s.text.Len() > 0 {
-		assistant.Parts = append(assistant.Parts, TextPart{Text: s.text.String()})
+		assistant.Parts = append(assistant.Parts, model.TextPart{Text: s.text.String()})
 	}
-	resp := &Response{Text: s.text.String()}
+	resp := &model.Response{Text: s.text.String()}
 	for _, tc := range s.toolCalls {
 		if tc.Function.Name == "" && tc.ID == "" && tc.Function.Arguments == "" {
 			continue
 		}
 		args := compactJSON(tc.Function.Arguments)
-		assistant.Parts = append(assistant.Parts, ToolCallPart{
+		assistant.Parts = append(assistant.Parts, model.ToolCallPart{
 			ID:        tc.ID,
 			Name:      tc.Function.Name,
 			Arguments: args,
 		})
-		resp.ToolCalls = append(resp.ToolCalls, ToolCall{
+		resp.ToolCalls = append(resp.ToolCalls, model.ToolCall{
 			ID:        tc.ID,
 			Name:      tc.Function.Name,
 			Arguments: args,

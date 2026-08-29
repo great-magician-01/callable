@@ -1,9 +1,11 @@
-package core
+package provider
 
 import (
-	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"testing"
+
+	. "github.com/great-magician-01/callable/internal/model"
+	. "github.com/great-magician-01/callable/internal/testutil"
 )
 
 func TestChatResponseFormatPayload(t *testing.T) {

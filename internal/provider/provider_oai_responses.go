@@ -1,4 +1,4 @@
-package core
+package provider
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	model "github.com/great-magician-01/callable/internal/model"
 )
 
 // OpenAIResponsesProvider talks the OpenAI Responses format
@@ -120,7 +122,7 @@ type respOutputItem struct {
 
 // ── request building ───────────────────────────────────────────────────────
 
-func (p *OpenAIResponsesProvider) buildPayload(req *Request, stream bool) ([]byte, error) {
+func (p *OpenAIResponsesProvider) buildPayload(req *model.Request, stream bool) ([]byte, error) {
 	instructions, input, err := p.buildInput(req.Messages)
 	if err != nil {
 		return nil, err
@@ -139,7 +141,7 @@ func (p *OpenAIResponsesProvider) buildPayload(req *Request, stream bool) ([]byt
 			Parameters:  def.Parameters,
 		})
 	}
-	if req.WebSearch && p.supportsWebSearch() == webSearchServer {
+	if req.WebSearch && p.supportsWebSearch() == WebSearchServer {
 		// Hosted web search tool; the server executes it and returns
 		// web_search_call items, which round-trip verbatim via the raw
 		// output replay.
@@ -168,7 +170,7 @@ func (p *OpenAIResponsesProvider) buildPayload(req *Request, stream bool) ([]byt
 
 // respTextFormat maps the unified ResponseFormat onto the Responses
 // text.format field.
-func respTextFormat(f *ResponseFormat) any {
+func respTextFormat(f *model.ResponseFormat) any {
 	if f == nil {
 		return nil
 	}
@@ -186,12 +188,12 @@ func respTextFormat(f *ResponseFormat) any {
 // buildInput converts unified messages into Responses input items. Assistant
 // messages that carry raw output items from a previous response replay them
 // verbatim (preserving reasoning items); others are reconstructed from parts.
-func (p *OpenAIResponsesProvider) buildInput(messages []Message) (string, []any, error) {
+func (p *OpenAIResponsesProvider) buildInput(messages []model.Message) (string, []any, error) {
 	system, rest := splitSystem(messages)
 	var input []any
 
 	for _, m := range rest {
-		if m.Role == RoleAssistant {
+		if m.Role == model.RoleAssistant {
 			if raw := m.ProviderExtra(p.Name()); len(raw) > 0 {
 				var items []json.RawMessage
 				if err := json.Unmarshal(raw, &items); err == nil && len(items) > 0 {
@@ -204,19 +206,19 @@ func (p *OpenAIResponsesProvider) buildInput(messages []Message) (string, []any,
 			var text strings.Builder
 			for _, part := range m.Parts {
 				switch v := part.(type) {
-				case TextPart:
+				case model.TextPart:
 					text.WriteString(v.Text)
-				case ThinkingPart:
+				case model.ThinkingPart:
 					// Reasoning items cannot be reconstructed faithfully;
 					// they are only replayed via provider round-trip data.
-				case ToolCallPart:
+				case model.ToolCallPart:
 					input = append(input, respFunctionCallItem{
 						Type:      "function_call",
 						CallID:    v.ID,
 						Name:      v.Name,
 						Arguments: v.Arguments,
 					})
-				case ToolResultPart:
+				case model.ToolResultPart:
 					input = append(input, respFunctionCallOutputItem{
 						Type:   "function_call_output",
 						CallID: v.ToolCallID,
@@ -237,13 +239,13 @@ func (p *OpenAIResponsesProvider) buildInput(messages []Message) (string, []any,
 		// User / tool messages: function_call_output items must directly
 		// follow the function_call items they answer.
 		var contents []respUserContent
-		var results []ToolResultPart
+		var results []model.ToolResultPart
 		for _, part := range m.Parts {
 			switch v := part.(type) {
-			case TextPart:
+			case model.TextPart:
 				contents = append(contents, respUserContent{Type: "input_text", Text: v.Text})
-			case ImagePart:
-				resolved, err := resolveImage(v)
+			case model.ImagePart:
+				resolved, err := model.ResolveImage(v)
 				if err != nil {
 					return "", nil, err
 				}
@@ -252,7 +254,7 @@ func (p *OpenAIResponsesProvider) buildInput(messages []Message) (string, []any,
 					u = resolved.DataURL()
 				}
 				contents = append(contents, respUserContent{Type: "input_image", ImageURL: u})
-			case ToolResultPart:
+			case model.ToolResultPart:
 				results = append(results, v)
 			}
 		}
@@ -287,11 +289,11 @@ type respUsageBody struct {
 	} `json:"output_tokens_details"`
 }
 
-func (u *respUsageBody) toUsage() Usage {
+func (u *respUsageBody) toUsage() model.Usage {
 	if u == nil {
-		return Usage{}
+		return model.Usage{}
 	}
-	usage := Usage{
+	usage := model.Usage{
 		InputTokens:  u.InputTokens,
 		OutputTokens: u.OutputTokens,
 		// InputTokens already includes cached tokens, so it is the full
@@ -321,7 +323,7 @@ type respEnvelope struct {
 }
 
 // Create performs a non-streaming request.
-func (p *OpenAIResponsesProvider) Create(ctx context.Context, req *Request) (*Response, error) {
+func (p *OpenAIResponsesProvider) Create(ctx context.Context, req *model.Request) (*model.Response, error) {
 	payload, err := p.buildPayload(req, false)
 	if err != nil {
 		return nil, err
@@ -351,9 +353,9 @@ func (p *OpenAIResponsesProvider) Create(ctx context.Context, req *Request) (*Re
 
 // assemble converts a response envelope into the unified Response, attaching
 // the raw output items to the assistant message for round-trip replay.
-func (p *OpenAIResponsesProvider) assemble(env *respEnvelope) (*Response, error) {
-	resp := &Response{Usage: env.Usage.toUsage()}
-	assistant := Message{Role: RoleAssistant}
+func (p *OpenAIResponsesProvider) assemble(env *respEnvelope) (*model.Response, error) {
+	resp := &model.Response{Usage: env.Usage.toUsage()}
+	assistant := model.Message{Role: model.RoleAssistant}
 
 	for _, raw := range env.Output {
 		var item respOutputItem
@@ -369,21 +371,21 @@ func (p *OpenAIResponsesProvider) assemble(env *respEnvelope) (*Response, error)
 			for _, c := range item.Content { // raw reasoning text, when exposed
 				thinking.WriteString(c.Text)
 			}
-			assistant.Parts = append(assistant.Parts, ThinkingPart{ID: item.ID, Text: thinking.String()})
+			assistant.Parts = append(assistant.Parts, model.ThinkingPart{ID: item.ID, Text: thinking.String()})
 		case "message":
 			for _, c := range item.Content {
 				if c.Text != "" {
-					assistant.Parts = append(assistant.Parts, TextPart{Text: c.Text})
+					assistant.Parts = append(assistant.Parts, model.TextPart{Text: c.Text})
 					resp.Text += c.Text
 				}
 			}
 		case "function_call":
-			assistant.Parts = append(assistant.Parts, ToolCallPart{
+			assistant.Parts = append(assistant.Parts, model.ToolCallPart{
 				ID:        item.CallID,
 				Name:      item.Name,
 				Arguments: compactJSON(item.Arguments),
 			})
-			resp.ToolCalls = append(resp.ToolCalls, ToolCall{
+			resp.ToolCalls = append(resp.ToolCalls, model.ToolCall{
 				ID:        item.CallID,
 				Name:      item.Name,
 				Arguments: compactJSON(item.Arguments),
@@ -393,11 +395,11 @@ func (p *OpenAIResponsesProvider) assemble(env *respEnvelope) (*Response, error)
 
 	switch {
 	case len(resp.ToolCalls) > 0:
-		resp.StopReason = StopReasonToolCalls
+		resp.StopReason = model.StopReasonToolCalls
 	case env.Status == "incomplete":
-		resp.StopReason = StopReasonMaxTokens
+		resp.StopReason = model.StopReasonMaxTokens
 	default:
-		resp.StopReason = StopReasonEndTurn
+		resp.StopReason = model.StopReasonEndTurn
 	}
 
 	// Preserve raw output items (reasoning continuity across tool calls).
@@ -420,7 +422,7 @@ type respStreamState struct {
 }
 
 // Stream performs a streaming request.
-func (p *OpenAIResponsesProvider) Stream(ctx context.Context, req *Request, onEvent eventSink) (*Response, error) {
+func (p *OpenAIResponsesProvider) Stream(ctx context.Context, req *model.Request, onEvent model.EventSink) (*model.Response, error) {
 	payload, err := p.buildPayload(req, true)
 	if err != nil {
 		return nil, err
@@ -432,7 +434,7 @@ func (p *OpenAIResponsesProvider) Stream(ctx context.Context, req *Request, onEv
 	defer body.Close()
 
 	state := &respStreamState{}
-	var final *Response
+	var final *model.Response
 	scanErr := scanSSE(body, func(ev sseMessage) error {
 		if strings.TrimSpace(ev.data) == "" {
 			return nil
@@ -461,7 +463,7 @@ func (p *OpenAIResponsesProvider) Stream(ctx context.Context, req *Request, onEv
 	}
 	if final != nil {
 		if onEvent != nil {
-			onEvent(MessageDoneEvent{Message: final.Message, Usage: final.Usage, StopReason: final.StopReason})
+			onEvent(model.MessageDoneEvent{Message: final.Message, Usage: final.Usage, StopReason: final.StopReason})
 		}
 		return final, nil
 	}
@@ -473,14 +475,14 @@ func (p *OpenAIResponsesProvider) Stream(ctx context.Context, req *Request, onEv
 		return nil, err
 	}
 	if onEvent != nil {
-		onEvent(MessageDoneEvent{Message: resp.Message, Usage: resp.Usage, StopReason: resp.StopReason})
+		onEvent(model.MessageDoneEvent{Message: resp.Message, Usage: resp.Usage, StopReason: resp.StopReason})
 	}
 	return resp, nil
 }
 
 // processEvent handles one SSE event. It returns a non-nil Response when the
 // stream is complete (response.completed / response.incomplete).
-func (p *OpenAIResponsesProvider) processEvent(data string, state *respStreamState, onEvent eventSink) (*Response, error) {
+func (p *OpenAIResponsesProvider) processEvent(data string, state *respStreamState, onEvent model.EventSink) (*model.Response, error) {
 	var ev struct {
 		Type        string          `json:"type"`
 		Delta       string          `json:"delta"`
@@ -498,7 +500,7 @@ func (p *OpenAIResponsesProvider) processEvent(data string, state *respStreamSta
 		if !state.started {
 			state.started = true
 			if onEvent != nil {
-				onEvent(MessageStartEvent{})
+				onEvent(model.MessageStartEvent{})
 			}
 		}
 	case "response.output_item.added":
@@ -508,19 +510,19 @@ func (p *OpenAIResponsesProvider) processEvent(data string, state *respStreamSta
 			Name   string `json:"name"`
 		}
 		if json.Unmarshal(ev.Item, &item) == nil && item.Type == "function_call" && onEvent != nil {
-			onEvent(ToolCallDeltaEvent{Index: ev.OutputIndex, ID: item.CallID, Name: item.Name})
+			onEvent(model.ToolCallDeltaEvent{Index: ev.OutputIndex, ID: item.CallID, Name: item.Name})
 		}
 	case "response.output_text.delta":
 		if onEvent != nil {
-			onEvent(TextDeltaEvent{Delta: ev.Delta})
+			onEvent(model.TextDeltaEvent{Delta: ev.Delta})
 		}
 	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 		if onEvent != nil {
-			onEvent(ThinkingDeltaEvent{Delta: ev.Delta})
+			onEvent(model.ThinkingDeltaEvent{Delta: ev.Delta})
 		}
 	case "response.function_call_arguments.delta":
 		if onEvent != nil {
-			onEvent(ToolCallDeltaEvent{Index: ev.OutputIndex, ArgsDelta: ev.Delta})
+			onEvent(model.ToolCallDeltaEvent{Index: ev.OutputIndex, ArgsDelta: ev.Delta})
 		}
 	case "response.output_item.done":
 		if len(ev.Item) > 0 {

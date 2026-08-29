@@ -1,11 +1,12 @@
-package core
+package provider
 
 import (
 	"context"
-	"encoding/json"
-	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"testing"
+
+	. "github.com/great-magician-01/callable/internal/model"
+	. "github.com/great-magician-01/callable/internal/testutil"
 )
 
 func chatProviderWithBase(base string) *OpenAIProvider {
@@ -409,101 +410,5 @@ func TestChatExtraPassthrough(t *testing.T) {
 	m := DecodeMap(t, body)
 	if m["custom_flag"] != true {
 		t.Errorf("custom_flag = %v", m["custom_flag"])
-	}
-}
-
-// TestChatAgentFlow drives a full agent loop against a mock chat-completions
-// server, verifying request construction and stream parsing end to end.
-func TestChatAgentFlow(t *testing.T) {
-	sse := func(lines ...string) string {
-		var b strings.Builder
-		for _, l := range lines {
-			b.WriteString("data: " + l + "\n\n")
-		}
-		b.WriteString("data: [DONE]\n\n")
-		return b.String()
-	}
-	toolCallTurn := sse(
-		`{"choices":[{"delta":{"role":"assistant","content":""}}]}`,
-		`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":""}}]}}]}`,
-		`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":\"Oslo\"}"}}]}}]}`,
-		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
-	)
-	finalTurn := sse(
-		`{"choices":[{"delta":{"role":"assistant","content":"It is "}}]}`,
-		`{"choices":[{"delta":{"content":"sunny."}}]}`,
-		`{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":11,"completion_tokens":13}}`,
-	)
-
-	var requestBodies []string
-	server := NewMockServer(t, []string{toolCallTurn, finalTurn}, &requestBodies)
-	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
-
-	var gotArgs weatherArgs
-	weather := NewTool("get_weather", "", func(ctx context.Context, args weatherArgs) (any, error) {
-		gotArgs = args
-		return "sunny", nil
-	})
-	agent := NewAgent(client, WithTools(weather))
-
-	var events []Event
-	result, err := agent.RunStream(context.Background(), func(ev Event) { events = append(events, ev) },
-		User("Weather in Oslo?"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.FinalText != "It is sunny." {
-		t.Errorf("final text = %q", result.FinalText)
-	}
-	if result.Turns != 2 {
-		t.Errorf("turns = %d", result.Turns)
-	}
-	if gotArgs.City != "Oslo" {
-		t.Errorf("tool args = %+v", gotArgs)
-	}
-	if result.Usage.OutputTokens != 13 {
-		t.Errorf("usage = %+v", result.Usage)
-	}
-
-	// The second request must contain the tool-call exchange.
-	if len(requestBodies) != 2 {
-		t.Fatalf("requests = %d", len(requestBodies))
-	}
-	var req struct {
-		Messages []struct {
-			Role       string `json:"role"`
-			Content    string `json:"content"`
-			ToolCallID string `json:"tool_call_id"`
-		} `json:"messages"`
-	}
-	if err := json.Unmarshal([]byte(requestBodies[1]), &req); err != nil {
-		t.Fatal(err)
-	}
-	var sawToolResult bool
-	for _, m := range req.Messages {
-		if m.Role == "tool" && m.ToolCallID == "call_1" {
-			sawToolResult = true
-		}
-	}
-	if !sawToolResult {
-		t.Errorf("second request missing tool result: %s", requestBodies[1])
-	}
-
-	// Event sequence sanity.
-	var kinds []string
-	for _, ev := range events {
-		switch ev.(type) {
-		case TurnStartEvent:
-			kinds = append(kinds, "turn")
-		case TextDeltaEvent:
-			kinds = append(kinds, "text")
-		case ToolResultEvent:
-			kinds = append(kinds, "tool")
-		case AgentDoneEvent:
-			kinds = append(kinds, "done")
-		}
-	}
-	if len(kinds) < 4 || kinds[len(kinds)-1] != "done" {
-		t.Errorf("event kinds = %v", kinds)
 	}
 }

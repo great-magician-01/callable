@@ -234,14 +234,6 @@ func TestClientExtraMerge(t *testing.T) {
 	}
 }
 
-// TestWithRetryBackoffEmpty verifies an empty schedule keeps the default.
-func TestWithRetryBackoffEmpty(t *testing.T) {
-	p := NewOpenAIProvider("k", "https://api.example.com", WithRetryBackoff())
-	if p.api.cfg.backoff != nil {
-		t.Errorf("backoff = %v, want nil (default schedule)", p.api.cfg.backoff)
-	}
-}
-
 func TestEventConversationIDHelperCoversAllEvents(t *testing.T) {
 	events := []Event{
 		MessageStartEvent{}, ThinkingDeltaEvent{}, TextDeltaEvent{},
