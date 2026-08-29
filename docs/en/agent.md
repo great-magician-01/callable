@@ -82,6 +82,7 @@ Notes:
 
 ```go
 type AgentResult struct {
+    ConversationID string    // ID of the conversation this run belongs to: a sess--prefixed session ID for a Session Ask; a fresh run--prefixed ID for a bare Run/RunStream
     FinalText  string    // the model's final answer; empty or partial if the run did not complete
     Messages   []Message // full trajectory: input messages + every assistant message and tool result
     Usage      Usage     // token usage accumulated across all turns
@@ -100,6 +101,8 @@ Stop reason constants:
 `Usage` fields: `InputTokens / OutputTokens / ReasoningTokens / CacheReadTokens / CacheWriteTokens`, summed over all turns.
 
 `Messages` excludes the system prompt and contains only the input plus everything the loop produced — it can be handed to `Session.SetHistory` or persisted as JSON. See [Message Model](messages.md).
+
+The `ConversationID` also appears in the `ConversationID` field of every streaming event fired during this run (see [Streaming Events](streaming.md)); use it to tell runs apart when several concurrent runs/sessions share one event callback.
 
 ## Approval hook: ToolCallHook
 
@@ -263,5 +266,6 @@ func main() {
 
 - `WithMaxTurns` defaults to 25, which is generous, but for tasks that can fall into tool loops (the model calling the same tool repeatedly), set it explicitly and handle `MaxTurnsError`.
 - `Agent` itself is stateless and safe to reuse concurrently; cross-call history is managed by a [Session](session.md).
+- To observe every internal model call of the loop (logging, tracing, token cost accounting), use the client-level `WithRequestHook` / `WithResponseHook` — an N-turn loop triggers them N times; see [Getting Started](getting-started.md).
 - Running tool functions receive the same `ctx`; tool implementations should respond to cancellation themselves — Go cannot forcibly kill a goroutine that ignores `ctx`.
 - The system prompt is assembled by the agent (base prompt + skill index + sub-agent index); do not include `System(...)` in the messages you pass to `Run`.

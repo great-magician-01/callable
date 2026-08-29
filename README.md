@@ -26,6 +26,10 @@
 - **联网搜索**：优先使用 provider 内置的服务端搜索（Kimi、GLM/Z.AI、Qwen、Anthropic、OpenAI Responses，按 BaseURL 自动嗅探），无内置时可用 Tavily 回退工具（`WithTavilyAPIKey`）；`WithWebSearch` 显式开关
 - **多轮对话**：内置 `Session` 维护历史，thinking 块 / 工具轨迹完整保留并正确回传（Anthropic signature、Responses reasoning item、DeepSeek/GLM reasoning_content）
 - **上下文管理**：Session 跟踪上下文窗口占用（`Usage.ContextTokens` 按 provider 归一化），支持阈值触发自动压缩（`WithAutoCompact`）与手动 `Compact` 压缩历史
+- **会话 ID 与持久化**：每个会话/运行自动生成 ID（`sess-` / `run-` 前缀），出现在所有流式事件与 `AgentResult` 上；`Session.Snapshot` / `Restore` 一行完成会话持久化与恢复；Session 并发安全
+- **结构化输出**：`JSONMode` / `JSONSchema` / `JSONSchemaFor[T]`（从 struct 反射）统一约束 JSON 输出，自动映射三家原生控制字段；`resp.DecodeJSON(&v)` 直接解码到 Go struct
+- **采样参数**：`WithTopP` / `WithStopSequences` 支持请求级与 Client 默认值，按 provider 映射（OpenAI Responses 无 stop）；思考模式下自动省略 temperature/top_p
+- **请求/响应钩子**：`WithRequestHook` / `WithResponseHook` 观测每次模型调用（含 agent loop 内部），用于日志、trace 与成本统计
 - **流式**：统一的 `ThinkingDelta / TextDelta / ToolCallDelta / ToolResult / Turn*` 事件流，agent loop 全程可见
 - **思考模式**：统一的 `Effort`（low/medium/high）映射到各家原生字段；自动适配 GLM/智谱、火山方舟、Qwen、DeepSeek 等国产端点的非标思考字段（按 BaseURL 自动嗅探）
 - **Skill 渐进式披露**：system prompt 只注入 name/description 索引，模型按需通过内置 `read_skill` 工具加载全文；读取钩子可改写内容
@@ -42,11 +46,10 @@ go get github.com/great-magician-01/callable
 ## 快速开始
 
 ```go
-client := callable.NewClient(
-    // 第二个参数是端点地址：内置了常见厂商常量（见下），其它端点传实际 URL 即可
-    callable.NewAnthropicProvider(apiKey, callable.AnthropicURL), // 或 NewOpenAIProvider / NewOpenAIResponsesProvider
-    callable.WithModel("claude-sonnet-5"),
-)
+// 第二个参数是端点地址：内置了常见厂商常量（见下），其它端点传实际 URL 即可
+client := callable.NewAnthropicClient(apiKey, callable.AnthropicURL, "claude-sonnet-5")
+// 或 NewOpenAIClient / NewOpenAIResponsesClient；需要 ProviderOption（如 WithRetries）时
+// 用两步构造：callable.NewClient(callable.NewAnthropicProvider(apiKey, callable.AnthropicURL), callable.WithModel(...))
 
 // 流式单次调用
 err := client.Stream(ctx, callable.NewRequest(callable.User("讲个故事")), func(ev callable.Event) {
@@ -110,8 +113,11 @@ sess.Ask(ctx, callable.User("上海呢？"))            // 历史自动维护
 sess.AskStream(ctx, handler, callable.User("广州呢？"))
 sess.ContextFillRatio() // 当前上下文占用比例
 sess.Compact(ctx)       // 手动压缩历史
-sess.History()          // []Message，可 JSON 序列化持久化
-sess.SetHistory(saved)  // 恢复
+sess.ID()               // 会话 ID（sess- 前缀），出现在所有事件与 AgentResult 上
+data, _ := sess.Snapshot() // 持久化整个会话（id + 历史 + 上下文用量）
+sess.Restore(data)      // 从快照恢复
+sess.History()          // []Message，也可自行 JSON 序列化
+sess.SetHistory(saved)  // 手工恢复历史
 ```
 
 ## Skill：渐进式披露
@@ -277,7 +283,7 @@ callable.NewOpenAIProvider(key, callable.QwenURL)                 // Qwen，方�
 ## 错误处理
 
 - `*callable.APIError`：`Provider / StatusCode / Type / Message / Body`，`IsRetryable()` 判断可重试
-- 网络错误 / 429 / 5xx 自动重试（默认 3 次，依次等待 3s / 10s / 30s，`WithRetries(n)` 配置次数，`WithRetries(0)` 关闭）
+- 网络错误 / 429 / 5xx 自动重试（默认 3 次，依次等待 3s / 10s / 30s，`WithRetries(n)` 配置次数，`WithRetries(0)` 关闭，`WithRetryBackoff(d...)` 自定义等待节奏）
 - 工具执行错误 → `IsError` 工具结果回传给模型（可自行重试换路），不中断 loop
 - `*callable.MaxTurnsError`：附带 `Partial *AgentResult`
 - 请求级逃生舱：`NewRequest(...).WithExtra("key", value)` 透传任意顶层字段
@@ -320,6 +326,7 @@ if errors.Is(err, context.DeadlineExceeded) {
 - [联网搜索](./docs/zh/web-search.md)：内置搜索自动嗅探、Kimi 回显协议、Tavily 回退
 - [流式事件](./docs/zh/streaming.md)：事件类型一览、事件序列、Usage
 - [思考模式](./docs/zh/thinking.md)：Effort 映射、各家端点的坑
+- [结构化输出与采样参数](./docs/zh/structured-output.md)：JSONMode/JSONSchema/JSONSchemaFor、DecodeJSON、top_p 与停止序列
 - [Skill 渐进披露](./docs/zh/skills.md)：read_skill、读取钩子
 - [子代理](./docs/zh/subagents.md)：load_agent 两步委派、事件透传
 - [图片输入](./docs/zh/images.md)：本地/URL/字节、跨 provider 转换

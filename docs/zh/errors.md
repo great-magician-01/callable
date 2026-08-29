@@ -74,7 +74,7 @@ Client 层对瞬时故障自动重试，策略固定且可预测：
 |---|---|
 | 触发条件 | 网络错误（连接失败等）、HTTP 429、HTTP 5xx |
 | 默认次数 | 3 次重试（共最多 4 次请求） |
-| 等待节奏 | 第 1 次重试前等 3s，第 2 次前等 10s，第 3 次前等 30s |
+| 等待节奏 | 第 1 次重试前等 3s，第 2 次前等 10s，第 3 次前等 30s；可用 `WithRetryBackoff` 整体替换 |
 | `WithRetries(n)` | 配置重试次数；负数按 0 处理 |
 | `WithRetries(0)` | 关闭重试，任何错误立即返回 |
 | 超出节奏表 | 第 4 次及以后的重试都等 30s |
@@ -85,6 +85,16 @@ client := callable.NewClient(
         callable.WithRetries(5), // 重试 5 次，等待 3s/10s/30s/30s/30s
     ),
     callable.WithModel("gpt-5"),
+)
+```
+
+`WithRetryBackoff` 用自定义时间表整体替换默认的 3s/10s/30s：`delays[i]` 是第 i+1 次重试前的等待，重试次数超出表长时复用最后一个值：
+
+```go
+callable.NewOpenAIProvider(apiKey, callable.OpenAIURL,
+    callable.WithRetries(4),
+    callable.WithRetryBackoff(500*time.Millisecond, 2*time.Second, 5*time.Second),
+    // 4 次重试的等待依次为 0.5s / 2s / 5s / 5s
 )
 ```
 
@@ -206,6 +216,18 @@ resp, err := client.Create(ctx,
 ```
 
 `WithExtra(key, value)` 在请求被序列化为各家 wire 格式之后，把键值对覆盖合并到 JSON 顶层——也就是说它**能覆盖库自己设置的字段**（比如 `max_tokens`）。这是有意的逃生舱设计：能力强大，但传错键名或类型不会在编译期报错，而是直达服务端（通常表现为 400 `*APIError`，其 `Body` 里有 provider 的具体抱怨）。只在没有对应的一等 API 时使用。
+
+某个中转站/网关要求**每个请求**都带方言参数时，用 Client 级的 `WithExtra` 设默认值，请求级同名字段优先：
+
+```go
+client := callable.NewClient(
+    callable.NewOpenAIProvider(apiKey, gatewayURL),
+    callable.WithModel("..."),
+    callable.WithExtra("gateway_flag", true), // 每个请求都带上
+)
+```
+
+网关要求的自定义 HTTP 头则用 Provider 级 `WithHeader`（见「创建 Client 与 Provider」）。
 
 ## 完整示例
 

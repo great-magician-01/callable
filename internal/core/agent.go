@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -200,6 +201,10 @@ func NewAgent(client *Client, opts ...AgentOption) *Agent {
 
 // AgentResult is the outcome of one agent run.
 type AgentResult struct {
+	// ConversationID identifies the conversation this run belongs to: for a
+	// session Ask it is the session's ID (stable across asks), for a bare
+	// Run/RunStream it is a fresh ID generated per run.
+	ConversationID string
 	// FinalText is the model's last answer (empty if the run did not
 	// complete).
 	FinalText string
@@ -226,6 +231,10 @@ func (a *Agent) Run(ctx context.Context, messages ...Message) (*AgentResult, err
 // RunStream runs the agent loop, forwarding all events (turns, provider
 // deltas, tool executions) to onEvent as they happen.
 //
+// Every run belongs to a conversation: bare runs get a fresh conversation ID
+// (run-...), session asks reuse the session's ID. The ID is stamped onto
+// every event's ConversationID field and reported in AgentResult.
+//
 // Canceling the context stops the run gracefully: an in-flight upstream
 // request is aborted (the server stops generating), no new turn is started,
 // and tools not yet executed are skipped with a synthesized error result so
@@ -233,13 +242,22 @@ func (a *Agent) Run(ctx context.Context, messages ...Message) (*AgentResult, err
 // and carries the partial trajectory; the error matches the context error
 // (errors.Is(err, context.Canceled) / context.DeadlineExceeded).
 func (a *Agent) RunStream(ctx context.Context, onEvent eventSink, messages ...Message) (*AgentResult, error) {
-	result := &AgentResult{Messages: append([]Message{}, messages...)}
+	return a.run(ctx, newID("run"), onEvent, messages...)
+}
+
+// run is RunStream with an explicit conversation ID (sessions pass theirs).
+func (a *Agent) run(ctx context.Context, conversationID string, onEvent eventSink, messages ...Message) (*AgentResult, error) {
+	result := &AgentResult{ConversationID: conversationID, Messages: append([]Message{}, messages...)}
 	if len(messages) == 0 {
 		return result, fmt.Errorf("callable: agent run requires at least one input message")
 	}
 
+	if onEvent != nil {
+		onEvent = stampConversationID(onEvent, conversationID)
+	}
 	// Make the sink visible to call_<name> tools so delegated sub-agents can
-	// forward their own events (wrapped in SubAgentEvent) to it.
+	// forward their own events (wrapped in SubAgentEvent) to it. The sink is
+	// already stamped, so SubAgentEvents carry the parent's conversation ID.
 	if a.subAgentEvents && onEvent != nil {
 		ctx = context.WithValue(ctx, subAgentEventSinkKey{}, onEvent)
 	}
@@ -450,8 +468,26 @@ func emit(onEvent eventSink, ev Event) {
 // Session keeps conversation history across multiple Ask calls on the same
 // Agent, preserving thinking blocks and tool trajectories for correct
 // replay.
+//
+// A session has a stable ID (Session.ID) stamped onto every event and result
+// of its asks, which distinguishes its events from those of other sessions or
+// sub-agent runs sharing the same sink.
+//
+// Session is safe for concurrent use: Ask/AskStream/Compact are serialized
+// (a second Ask waits for the in-flight one), and the read methods (ID,
+// History, ContextUsage, ...) never block on an in-flight Ask.
+//
+// Two caveats: an event sink must not re-enter the session (calling
+// Ask/AskStream/Compact from inside a callback deadlocks), and the mutating
+// methods (SetHistory, Restore, Reset) must not race an in-flight Ask — the
+// Ask commits its own history when it completes, overwriting the mutation.
 type Session struct {
-	agent   *Agent
+	agent *Agent
+	id    string
+
+	askMu sync.Mutex   // serializes Ask/AskStream/Compact
+	mu    sync.RWMutex // guards history and contextUsage
+
 	history []Message
 
 	contextWindow        int
@@ -465,6 +501,7 @@ type Session struct {
 func (a *Agent) Session(opts ...SessionOption) *Session {
 	s := &Session{
 		agent:                a,
+		id:                   newID("sess"),
 		contextWindow:        DefaultContextWindow,
 		autoCompactThreshold: DefaultAutoCompactThreshold,
 	}
@@ -472,6 +509,15 @@ func (a *Agent) Session(opts ...SessionOption) *Session {
 		o(s)
 	}
 	return s
+}
+
+// ID returns the session's conversation ID, generated at creation and stable
+// across asks (it survives Reset; Restore replaces it with the snapshotted
+// one). Every event and AgentResult of this session carries it.
+func (s *Session) ID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.id
 }
 
 // Ask appends messages to the conversation and runs the agent loop.
@@ -485,20 +531,36 @@ func (s *Session) AskStream(ctx context.Context, onEvent eventSink, messages ...
 }
 
 func (s *Session) ask(ctx context.Context, onEvent eventSink, messages []Message) (*AgentResult, error) {
+	s.askMu.Lock()
+	defer s.askMu.Unlock()
+
+	s.mu.RLock()
+	id := s.id
 	input := append(append([]Message{}, s.history...), messages...)
-	result, err := s.agent.RunStream(ctx, onEvent, input...)
+	s.mu.RUnlock()
+
+	result, err := s.agent.run(ctx, id, onEvent, input...)
 	// Only successful runs extend the history: an aborted run may end with a
 	// dangling assistant tool-call message, which providers would reject on
 	// replay.
 	if err == nil {
+		s.mu.Lock()
 		s.history = result.Messages
 		s.contextUsage = result.LastTurnUsage
-		if s.autoCompact && s.ContextFillRatio() >= s.autoCompactThreshold {
+		fillRatio := 0.0
+		if s.contextWindow > 0 {
+			fillRatio = float64(s.contextUsage.ContextTokens) / float64(s.contextWindow)
+		}
+		s.mu.Unlock()
+		if s.autoCompact && fillRatio >= s.autoCompactThreshold {
 			// Best-effort: a failed compaction leaves the history untouched
 			// and does not fail the Ask.
-			before := s.contextUsage.ContextTokens
-			if summary, cerr := s.Compact(ctx); cerr == nil {
-				emit(onEvent, SessionCompactEvent{Summary: summary, TokensBefore: before})
+			if summary, cerr := s.compact(ctx); cerr == nil {
+				emit(onEvent, SessionCompactEvent{
+					ConversationID: id,
+					Summary:        summary,
+					TokensBefore:   result.LastTurnUsage.ContextTokens,
+				})
 			}
 		}
 	}
@@ -508,15 +570,22 @@ func (s *Session) ask(ctx context.Context, onEvent eventSink, messages []Message
 // ContextWindow returns the configured context window size in tokens.
 func (s *Session) ContextWindow() int { return s.contextWindow }
 
-// ContextUsage returns the usage of the most recent Ask's final model turn.
-// Its ContextTokens is how many tokens the conversation occupied in the
-// context window at that point. The zero value is returned before the first
-// Ask, after a failed Ask, and right after a compaction or Reset.
-func (s *Session) ContextUsage() Usage { return s.contextUsage }
+// ContextUsage returns the usage of the most recent successful Ask's final
+// model turn. Its ContextTokens is how many tokens the conversation occupied
+// in the context window at that point. The zero value is returned before the
+// first successful Ask and right after a compaction or Reset; a failed Ask
+// leaves the previous value untouched.
+func (s *Session) ContextUsage() Usage {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.contextUsage
+}
 
 // ContextFillRatio reports how full the context window was after the most
 // recent Ask: ContextUsage().ContextTokens / ContextWindow(), in [0, 1].
 func (s *Session) ContextFillRatio() float64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if s.contextWindow <= 0 {
 		return 0
 	}
@@ -525,16 +594,60 @@ func (s *Session) ContextFillRatio() float64 {
 
 // History returns the conversation so far (without the system prompt).
 func (s *Session) History() []Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return append([]Message{}, s.history...)
 }
 
 // SetHistory replaces the conversation, e.g. restoring persisted state.
 func (s *Session) SetHistory(messages []Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.history = append([]Message{}, messages...)
 }
 
 // Reset clears the conversation.
 func (s *Session) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.history = nil
 	s.contextUsage = Usage{}
+}
+
+// sessionSnapshot is the persisted form of a Session's state.
+type sessionSnapshot struct {
+	ID           string    `json:"id"`
+	History      []Message `json:"history"`
+	ContextUsage Usage     `json:"context_usage"`
+}
+
+// Snapshot serializes the session state (ID, history, context usage) as JSON
+// for persistence. Configuration (context window, auto-compact) is not part
+// of the snapshot; re-apply it via SessionOptions after restoring.
+func (s *Session) Snapshot() ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return json.Marshal(sessionSnapshot{
+		ID:           s.id,
+		History:      s.history,
+		ContextUsage: s.contextUsage,
+	})
+}
+
+// Restore loads a snapshot produced by Snapshot, replacing the session's ID,
+// history and context usage.
+func (s *Session) Restore(data []byte) error {
+	var snap sessionSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return fmt.Errorf("callable: restore session: %w", err)
+	}
+	if snap.ID == "" {
+		return fmt.Errorf("callable: restore session: snapshot has no id")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.id = snap.ID
+	s.history = snap.History
+	s.contextUsage = snap.ContextUsage
+	return nil
 }

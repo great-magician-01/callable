@@ -36,6 +36,9 @@ func main() {
 		"chat-think":      testChatThinking,   // Chat Completions + 思考(reasoning_content)
 		"chat-agent":      testChatAgent,      // Chat Completions + 工具调用 agent loop
 		"chat-session":    testChatSession,    // Chat Completions 多轮会话
+		"chat-json":       testChatJSON,       // 结构化输出（JSON mode + DecodeJSON）
+		"chat-sampling":   testChatSampling,   // top_p + stop sequences
+		"session-persist": testSessionPersist, // 会话 ID + 请求钩子 + Snapshot/Restore
 		"responses":       testResponses,      // OpenAI Responses: Create + Stream
 		"responses-think": testResponsesThink, // Responses + 思考
 		"anthropic":       testAnthropic,      // Anthropic Messages: Create + Stream
@@ -45,6 +48,7 @@ func main() {
 	names := os.Args[1:]
 	if len(names) == 0 || names[0] == "all" {
 		names = []string{"chat", "chat-think", "chat-agent", "chat-session",
+			"chat-json", "chat-sampling", "session-persist",
 			"responses", "responses-think", "anthropic", "anthropic-think"}
 	}
 	for _, name := range names {
@@ -232,6 +236,102 @@ func testChatSession() error {
 		return fmt.Errorf("第 2 轮未记住暗号: %q", r2.FinalText)
 	}
 	fmt.Printf("[history 消息数: %d]\n", len(sess.History()))
+	return nil
+}
+
+// --- 新能力：结构化输出 / 采样参数 / 会话持久化 ---
+
+type recipe struct {
+	Name  string   `json:"name" jsonschema:"description=菜名"`
+	Steps []string `json:"steps" jsonschema:"description=步骤"`
+}
+
+// testChatJSON 验证结构化输出：JSON mode + DecodeJSON。
+// 注意 DeepSeek 的 Chat 端点只支持 json_object，不支持 json_schema。
+func testChatJSON() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	resp, err := openAIClient().Create(ctx, callable.NewRequest(
+		callable.User(`给我一个煎饼果子的做法，输出 JSON：{"name": "...", "steps": [...]}`),
+	).WithResponseFormat(callable.JSONMode()))
+	if err != nil {
+		return err
+	}
+	var r recipe
+	if err := resp.DecodeJSON(&r); err != nil {
+		return fmt.Errorf("DecodeJSON: %w", err)
+	}
+	if r.Name == "" || len(r.Steps) == 0 {
+		return fmt.Errorf("结构化结果为空: %+v", r)
+	}
+	fmt.Printf("[structured] %s（%d 步）\n", r.Name, len(r.Steps))
+	return nil
+}
+
+// testChatSampling 验证 top_p / stop sequences 透传生效。
+func testChatSampling() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	resp, err := openAIClient().Create(ctx, callable.NewRequest(
+		callable.User("从 1 开始连续数数字，用空格分隔"),
+	).WithTopP(0.5).WithStopSequences("5"))
+	if err := check(resp, err); err != nil {
+		return err
+	}
+	if strings.Contains(resp.Text, "5") {
+		return fmt.Errorf("stop sequence 未生效: %q", resp.Text)
+	}
+	return nil
+}
+
+// testSessionPersist 验证会话 ID、请求/响应钩子和 Snapshot/Restore。
+func testSessionPersist() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+
+	var reqCount, respCount int
+	client := callable.NewClient(
+		callable.NewOpenAIProvider(apiKey, openAIBase),
+		callable.WithModel(model),
+		callable.WithRequestHook(func(ctx context.Context, req *callable.Request) { reqCount++ }),
+		callable.WithResponseHook(func(ctx context.Context, req *callable.Request, resp *callable.Response, err error) { respCount++ }),
+	)
+	agent := callable.NewAgent(client, callable.WithSystemPrompt("你是一个记忆力很好的助手。"))
+	sess := agent.Session()
+
+	r1, err := sess.Ask(ctx, callable.User("请记住一个暗号：蓝色苹果。只说“记住了”。"))
+	if err != nil {
+		return fmt.Errorf("第 1 轮: %w", err)
+	}
+	if r1.ConversationID != sess.ID() {
+		return fmt.Errorf("结果会话 ID %q 与会话 ID %q 不一致", r1.ConversationID, sess.ID())
+	}
+	fmt.Printf("[session id: %s]\n", sess.ID())
+
+	snap, err := sess.Snapshot()
+	if err != nil {
+		return fmt.Errorf("Snapshot: %w", err)
+	}
+	sess2 := agent.Session()
+	if err := sess2.Restore(snap); err != nil {
+		return fmt.Errorf("Restore: %w", err)
+	}
+	if sess2.ID() != sess.ID() {
+		return fmt.Errorf("恢复后会话 ID 改变: %q -> %q", sess.ID(), sess2.ID())
+	}
+	r2, err := sess2.Ask(ctx, callable.User("暗号是什么？"))
+	if err != nil {
+		return fmt.Errorf("恢复后第 2 轮: %w", err)
+	}
+	fmt.Println("[restored turn 2]", r2.FinalText)
+	if !strings.Contains(r2.FinalText, "蓝色苹果") {
+		return fmt.Errorf("恢复后的会话未记住暗号: %q", r2.FinalText)
+	}
+	if reqCount != 2 || respCount != 2 {
+		return fmt.Errorf("钩子触发次数 = %d/%d, 期望 2/2", reqCount, respCount)
+	}
 	return nil
 }
 

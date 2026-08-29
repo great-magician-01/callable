@@ -27,6 +27,7 @@ internal/core/            # ALL implementation and tests live here (~7.6k lines)
   request.go / response.go  # Unified Request / Response / Usage / StopReason.
   stream.go                 # Unified streaming event types (ThinkingDelta, TextDelta, ...).
   thinking.go               # Thinking config + Effort levels, mapped per provider.
+  format.go                 # Structured output: ResponseFormat + JSONSchemaFor reflection.
   image.go                  # Image loading (path / URL / bytes), media-type detection, base64.
   tool.go                   # Tool interface, NewTool[A] (generics + jsonschema reflection).
   skill.go                  # Skill type + built-in read_skill tool + read hook.
@@ -38,6 +39,7 @@ internal/core/            # ALL implementation and tests live here (~7.6k lines)
   endpoints.go              # Well-known base-URL constants + Compat dialect auto-detection.
   client.go / agent.go      # Client (Create/Stream, retries, defaults) and Agent loop + Session.
   compact.go                # Session context-window options + auto/manual history compaction.
+  id.go                     # Conversation ID generation (sess-/run- prefixes).
   errors.go                 # APIError / MaxTurnsError.
   websearch.go              # Web search: provider built-in detection + Kimi echo stub + Tavily fallback tool.
   *_test.go                 # All tests (no tests exist outside this package).

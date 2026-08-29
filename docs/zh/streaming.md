@@ -29,7 +29,7 @@ func (s *Session) AskStream(ctx context.Context, onEvent func(Event), messages .
 
 ## 事件类型完整表
 
-`Event` 是封闭接口（sealed interface），全部实现如下。事件按值传递（非指针）。
+`Event` 是封闭接口（sealed interface），全部实现如下。事件按值传递（非指针），且每个事件都带有一个 `ConversationID` 字段（见下文「会话 ID」）。
 
 ### provider 层事件（`client.Stream` 与 `agent.RunStream` 都会产生）
 
@@ -52,8 +52,20 @@ func (s *Session) AskStream(ctx context.Context, onEvent func(Event), messages .
 | `ToolCallEvent` | `Call ToolCall` | 工具即将执行：**ToolCallHook 批准之后、实际执行之前**触发。`Call` 是完整的工具调用（`ID` / `Name` / `Arguments` 原始 JSON）。被 hook 否决的调用不会触发此事件 |
 | `ToolResultEvent` | `Call ToolCall` `Result ToolResult` | 工具执行完毕后触发。`Result.Content` 是回传给模型的内容，`Result.IsError` 表示执行失败（错误会作为工具结果回传模型，不中断循环）。被 hook 否决或因取消被跳过的调用也会触发此事件（`IsError=true`） |
 | `AgentDoneEvent` | `Result *AgentResult` | agent loop 正常结束（模型给出最终回答）时触发，`Result` 与返回值是同一个对象。**达到 max turns 或出错/取消时不触发**，通过返回值/错误判断 |
-| `SubAgentEvent` | `SubAgent string` `Event Event` | 包装子代理 loop 内部产生的事件，`SubAgent` 是子代理名。仅在父 agent 开启 `WithSubAgentEvents(true)` 时产生，见[子代理](subagents.md) |
+| `SubAgentEvent` | `SubAgent string` `Event Event` | 包装子代理 loop 内部产生的事件，`SubAgent` 是子代理名。仅在父 agent 开启 `WithSubAgentEvents(true)` 时产生，见[子代理](subagents.md)。外层 `ConversationID` 是父会话的 ID，内层 `Event` 携带子代理自己运行的 ID |
 | `SessionCompactEvent` | `Summary string` `TokensBefore int` | 会话在一轮结束时自动压缩了历史（仅 `AskStream`，且会话开启了 `WithAutoCompact`）。`Summary` 是生成的摘要，`TokensBefore` 是压缩前的上下文 token 数，见[多轮会话](session.md) |
+
+## 会话 ID（ConversationID）
+
+每种事件都有一个 `ConversationID string` 字段，标识该事件属于哪次会话/运行：
+
+- `Session.AskStream`：值为会话 ID（`sess-` 前缀，即 `Session.ID()`），同一会话的多次 Ask 保持不变。
+- 裸 `agent.RunStream`：每次运行生成一个 `run-` 前缀的新 ID，与返回的 `AgentResult.ConversationID` 一致。
+- 裸 `client.Stream`：不经过 agent 层，事件的 `ConversationID` 为空字符串。
+
+`SubAgentEvent` 有两层 ID：外层的 `SubAgentEvent.ConversationID` 是**父会话**的 ID（子代理事件转发到父 agent 的回调，归属父会话），内层 `Event` 携带的是**子代理自己那次运行**的 ID（`run-` 前缀）。按两层 ID 过滤可以精确区分主 agent 与各个子代理的输出。
+
+消费端可以用 `ConversationID` 把并发会话/运行的事件流拆开，或关联到日志与计费记录。
 
 ## 典型事件序列
 

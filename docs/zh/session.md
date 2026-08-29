@@ -14,8 +14,12 @@ sess := agent.Session()
 result, err := sess.Ask(ctx, callable.User("你好"))
 result, err := sess.AskStream(ctx, onEvent, callable.User("继续"))
 
+sess.ID()                    // 会话 ID（sess- 前缀，创建时生成）
+data, err := sess.Snapshot() // 整个会话（id + 历史 + 上下文用量）序列化为 JSON
+err = sess.Restore(data)     // 从快照恢复
+
 history := sess.History()       // []callable.Message 的副本
-sess.SetHistory(restored)       // 整体替换历史（如恢复持久化状态）
+sess.SetHistory(restored)       // 整体替换历史（如手工构造上下文）
 sess.Reset()                    // 清空历史
 ```
 
@@ -24,8 +28,11 @@ sess.Reset()                    // 清空历史
 | `Agent.Session` | `func (a *Agent) Session(opts ...SessionOption) *Session` | 在该 agent 上创建新会话，历史为空。一个 agent 可同时挂多个独立会话；`opts` 见下文「上下文窗口与历史压缩」 |
 | `Session.Ask` | `func (s *Session) Ask(ctx context.Context, messages ...Message) (*AgentResult, error)` | 把消息追加到历史尾部并运行 agent loop（非流式），等价于 `agent.Run`，只是输入自动带上历史 |
 | `Session.AskStream` | `func (s *Session) AskStream(ctx context.Context, onEvent func(Event), messages ...Message) (*AgentResult, error)` | 同上，并把全部流式事件转发给 `onEvent`（见[流式事件](streaming.md)） |
+| `Session.ID` | `func (s *Session) ID() string` | 会话 ID（`sess-` 前缀），创建时生成、跨 Ask 稳定；`Reset` 不清除，`Restore` 恢复为快照中的 id。该会话的所有事件与 `AgentResult` 都携带它 |
 | `Session.History` | `func (s *Session) History() []Message` | 返回当前对话历史的**副本**（不含 system prompt），修改返回值不影响会话 |
 | `Session.SetHistory` | `func (s *Session) SetHistory(messages []Message)` | 整体替换历史（内部拷贝入参），用于恢复持久化的会话或手工构造上下文 |
+| `Session.Snapshot` | `func (s *Session) Snapshot() ([]byte, error)` | 把会话状态（id + 历史 + 上下文用量）序列化为 JSON，用于持久化。配置项（context window、auto-compact）不在快照里 |
+| `Session.Restore` | `func (s *Session) Restore(data []byte) error` | 从 `Snapshot` 产出的快照恢复（替换 id、历史与上下文用量）；无 id 的快照报错。恢复后需重新用 `SessionOption` 设置配置项 |
 | `Session.Reset` | `func (s *Session) Reset()` | 清空历史与上下文用量，会话回到刚创建时的状态 |
 | `Session.Compact` | `func (s *Session) Compact(ctx context.Context) (string, error)` | 手动压缩历史：用模型生成摘要并替换整段历史，返回摘要。空历史为 no-op，失败时历史不变 |
 | `Session.ContextWindow` | `func (s *Session) ContextWindow() int` | 配置的上下文窗口大小（token），默认 1,000,000 |
@@ -33,6 +40,14 @@ sess.Reset()                    // 清空历史
 | `Session.ContextFillRatio` | `func (s *Session) ContextFillRatio() float64` | 上下文占用比例：`ContextTokens / ContextWindow` |
 
 返回值 `*AgentResult` 与 `agent.Run` 一致：`FinalText`（最终回答）、`Messages`（本轮完整轨迹：输入消息 + 所有 assistant / tool 消息）、`Usage`（跨轮累计）、`LastTurnUsage`（最后一轮的用量，其 `ContextTokens` 即当前上下文占用量）、`Turns`、`StopReason`（`AgentCompleted` / `AgentMaxTurns`）。
+
+## 会话 ID
+
+每个会话在创建时生成一个随机 ID（`sess-` 前缀），`Session.ID()` 返回它。ID 在多次 Ask 之间保持稳定，`Reset` 不会重置它，`Restore` 会把它替换为快照中保存的 id。
+
+这个 ID 用于标识事件与结果的归属：`AskStream` 的每个流式事件都带有 `ConversationID` 字段，值就是会话 ID；`AgentResult.ConversationID` 同样携带它。多个会话共用一个事件回调、或需要把事件关联到日志/计费记录时，用它区分来源。
+
+裸 `agent.Run` / `RunStream`（不经过会话）每次运行生成一个 `run-` 前缀的新 ID；更底层的 `client.Create` / `Stream` 不产生 ID（事件 `ConversationID` 为空字符串）。详见[流式事件](streaming.md)。
 
 ## 基本用法
 
@@ -78,16 +93,15 @@ fmt.Println("历史消息数:", len(session.History()))
 - 运行**成功**（`err == nil`）后，`result.Messages` 成为新的历史——即旧历史 + 本次输入 + 本轮所有 assistant 消息（含 thinking 与 tool_call）+ 所有 tool 结果消息。下一轮 Ask 时全部回传。
 - 一轮 Ask 可能包含多个 loop 轮次（模型调工具 → 工具结果回传 → 再问模型），这些中间消息同样完整保留在历史里。
 
-## 历史持久化：序列化到 JSON 并恢复
+## 历史持久化：Snapshot / Restore
 
-`Message` 及其所有 Part 类型都实现了 JSON 序列化（含 provider 回传数据，见下一节），所以 `History()` 的结果可以直接 `json.Marshal`，反序列化后用 `SetHistory` 恢复，会话无缝继续：
+`Session.Snapshot()` 把整个会话状态（会话 id + 完整历史 + 上下文用量）序列化为 JSON，`Session.Restore(data)` 在新会话上原样恢复。`Message` 及其所有 Part 类型都实现了 JSON 序列化（含 provider 回传数据，见下一节），所以跨进程续聊只需两行：
 
 ```go
 package main
 
 import (
     "context"
-    "encoding/json"
     "fmt"
     "log"
     "os"
@@ -95,51 +109,25 @@ import (
     callable "github.com/great-magician-01/callable"
 )
 
-const historyFile = "session.json"
-
-// 保存历史到文件
-func saveHistory(sess *callable.Session) error {
-    data, err := json.MarshalIndent(sess.History(), "", "  ")
-    if err != nil {
-        return err
-    }
-    return os.WriteFile(historyFile, data, 0o644)
-}
-
-// 从文件恢复历史；文件不存在时返回 nil（新会话）
-func loadHistory() ([]callable.Message, error) {
-    data, err := os.ReadFile(historyFile)
-    if os.IsNotExist(err) {
-        return nil, nil
-    }
-    if err != nil {
-        return nil, err
-    }
-    var history []callable.Message
-    if err := json.Unmarshal(data, &history); err != nil {
-        return nil, err
-    }
-    return history, nil
-}
+const snapshotFile = "session.json"
 
 func main() {
     ctx := context.Background()
 
-    client := callable.NewClient(
-        callable.NewAnthropicProvider(os.Getenv("ANTHROPIC_API_KEY"), callable.AnthropicURL),
-        callable.WithModel("claude-sonnet-5"),
-    )
+    client := callable.NewAnthropicClient(os.Getenv("ANTHROPIC_API_KEY"), callable.AnthropicURL, "claude-sonnet-5")
     agent := callable.NewAgent(client,
         callable.WithThinking(callable.Thinking{Effort: callable.EffortMedium}),
     )
-    session := agent.Session()
+    session := agent.Session(
+        callable.WithContextWindow(200_000), // 配置项不在快照里，恢复后需重新设置
+    )
 
-    // 恢复上次的会话（如有）
-    history, err := loadHistory()
-    if err != nil {
-        log.Fatal(err)
+    // 恢复上次的会话（如有）：id、历史、上下文用量一起回来
+    if data, err := os.ReadFile(snapshotFile); err == nil {
+        if err := session.Restore(data); err != nil {
+            log.Fatal(err)
+        }
     }
-    session.SetHistory(history)
 
     result, err := session.Ask(ctx, callable.User("我们上次聊到哪儿了？"))
     if err != nil {
@@ -147,11 +135,30 @@ func main() {
     }
     fmt.Println(result.FinalText)
 
-    // 持久化更新后的历史，供下次运行恢复
-    if err := saveHistory(session); err != nil {
+    // 持久化更新后的会话，供下次运行恢复
+    data, err := session.Snapshot()
+    if err != nil {
+        log.Fatal(err)
+    }
+    if err := os.WriteFile(snapshotFile, data, 0o644); err != nil {
         log.Fatal(err)
     }
 }
+```
+
+细节：
+
+- 快照 JSON 形如 `{"id": "sess-…", "history": […], "context_usage": {…}}`，其中 `history` 的每条消息格式与直接序列化 `History()` 的结果一致（见下文）。
+- 配置项（context window、auto-compact 阈值等）不在快照里——它们属于运行参数，恢复后按需重新用 `SessionOption` 设置。
+- `Restore` 要求快照带有 id（即必须产自 `Snapshot()`）；手工拼接的、没有 id 的 JSON 会报错。
+
+如果只想持久化/恢复历史本身（比如要先裁剪或检查历史内容），仍可以走手工路线——`History()` 的结果直接 `json.Marshal`，反序列化后用 `SetHistory` 恢复：
+
+```go
+data, _ := json.Marshal(session.History()) // 历史本身是普通 JSON
+var history []callable.Message
+_ = json.Unmarshal(data, &history)
+session.SetHistory(history) // 只恢复历史，不带会话 id 与上下文用量
 ```
 
 序列化后的每条消息形如：
@@ -260,7 +267,7 @@ summary, err := sess.Compact(ctx) // 空历史是 no-op；失败时历史不变
 
 ### 压缩做了什么
 
-压缩把当前历史渲染成纯文本 transcript（thinking 块与图片以占位符表示），用 agent 的 client（同一 model，不带工具与 thinking 配置）调用一次模型生成摘要，然后把整段历史替换为一条 user 消息：
+压缩把当前历史渲染成纯文本 transcript（thinking 块与图片以占位符表示），用 agent 的 client（同一 model，不带工具与 thinking 配置）调用一次模型生成摘要，然后把整段历史替换为一条 user 消息。这次总结调用走流式请求（长 transcript 的总结耗时较长，流式可以避免网关超时），流式增量被丢弃，对外行为不变：
 
 ```
 [Conversation compacted] Summary of the earlier conversation:
@@ -272,7 +279,7 @@ summary, err := sess.Compact(ctx) // 空历史是 no-op；失败时历史不变
 
 ## 注意事项
 
-- **并发**：`Session` 不是并发安全的，不要在多个 goroutine 里同时 Ask 同一个会话；需要并发请给每个 goroutine 一个独立会话。
+- **并发安全**：`Session` 可以在多个 goroutine 间共享——`Ask` / `AskStream` / `Compact` 会被串行化（进行中的 Ask 未结束时，第二个 Ask 排队等待），读取方法（`ID` / `History` / `ContextUsage` / `ContextFillRatio` / `Snapshot`）不会被进行中的 Ask 阻塞。需要真正并行的对话时，仍建议每个 goroutine 用独立会话。
 - **空消息**：`Ask(ctx)`（不传消息）会在历史为空时报错 `agent run requires at least one input message`；历史非空时则相当于"让模型基于现有历史再说点什么"。
 - **History 是副本**：`History()` 返回拷贝，追加消息请通过 `Ask` 或 `SetHistory`，直接改返回值无效。
 - **一个 agent 多个会话**：`agent.Session()` 可多次调用，各会话历史互不影响；但所有会话共享 agent 的配置（工具、system prompt、思考模式）。

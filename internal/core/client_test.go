@@ -59,12 +59,20 @@ func TestBackoffDelay(t *testing.T) {
 		if backoffDelays[i] != w {
 			t.Errorf("backoffDelays[%d] = %v, want %v", i, backoffDelays[i], w)
 		}
-		if got := backoffDelay(i + 1); got != w {
-			t.Errorf("backoffDelay(%d) = %v, want %v", i+1, got, w)
+		if got := backoffDelay(nil, i+1); got != w {
+			t.Errorf("backoffDelay(nil, %d) = %v, want %v", i+1, got, w)
 		}
 	}
-	if got := backoffDelay(len(want) + 5); got != want[len(want)-1] {
+	if got := backoffDelay(nil, len(want)+5); got != want[len(want)-1] {
 		t.Errorf("backoffDelay beyond schedule = %v, want %v (last delay)", got, want[len(want)-1])
+	}
+	// A per-provider schedule (WithRetryBackoff) overrides the default.
+	custom := []time.Duration{50 * time.Millisecond}
+	if got := backoffDelay(custom, 1); got != custom[0] {
+		t.Errorf("backoffDelay(custom, 1) = %v, want %v", got, custom[0])
+	}
+	if got := backoffDelay(custom, 4); got != custom[0] {
+		t.Errorf("backoffDelay(custom, 4) = %v, want %v (last delay)", got, custom[0])
 	}
 }
 

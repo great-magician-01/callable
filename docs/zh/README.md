@@ -14,6 +14,7 @@
 - [联网搜索](web-search.md) — provider 内置搜索自动嗅探、Kimi 回显协议、Tavily 回退
 - [流式事件](streaming.md) — 事件类型一览、典型事件序列、Usage 统计
 - [思考模式](thinking.md) — Effort 档位、各 provider 映射表、国产端点的坑
+- [结构化输出与采样参数](structured-output.md) — JSON 模式 / JSON Schema / DecodeJSON、top_p 与停止序列
 - [Skill 渐进披露](skills.md) — read_skill 内置工具、读取钩子、自定义加载工具
 - [子代理](subagents.md) — load_agent 两步委派、SubAgentOption、事件透传
 - [图片输入](images.md) — 本地路径/URL/字节、图文混排、跨 provider 格式转换

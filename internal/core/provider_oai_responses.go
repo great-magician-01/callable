@@ -37,14 +37,21 @@ func (p *OpenAIResponsesProvider) Name() string { return "openai-responses" }
 // ── wire types ─────────────────────────────────────────────────────────────
 
 type respPayload struct {
-	Model           string         `json:"model"`
-	Instructions    string         `json:"instructions,omitempty"`
-	Input           []any          `json:"input"`
-	Tools           []any          `json:"tools,omitempty"` // respToolDef or a hosted tool entry
-	Reasoning       *respReasoning `json:"reasoning,omitempty"`
-	MaxOutputTokens *int           `json:"max_output_tokens,omitempty"`
-	Temperature     *float64       `json:"temperature,omitempty"`
-	Stream          bool           `json:"stream,omitempty"`
+	Model           string          `json:"model"`
+	Instructions    string          `json:"instructions,omitempty"`
+	Input           []any           `json:"input"`
+	Tools           []any           `json:"tools,omitempty"` // respToolDef or a hosted tool entry
+	Reasoning       *respReasoning  `json:"reasoning,omitempty"`
+	MaxOutputTokens *int            `json:"max_output_tokens,omitempty"`
+	Temperature     *float64        `json:"temperature,omitempty"`
+	TopP            *float64        `json:"top_p,omitempty"`
+	Text            *respTextConfig `json:"text,omitempty"`
+	Stream          bool            `json:"stream,omitempty"`
+}
+
+// respTextConfig carries the Responses text.format structured-output control.
+type respTextConfig struct {
+	Format any `json:"format"`
 }
 
 type respReasoning struct {
@@ -146,6 +153,10 @@ func (p *OpenAIResponsesProvider) buildPayload(req *Request, stream bool) ([]byt
 		}
 	} else {
 		payload.Temperature = req.Temperature
+		payload.TopP = req.TopP
+	}
+	if f := respTextFormat(req.Format); f != nil {
+		payload.Text = &respTextConfig{Format: f}
 	}
 	if req.MaxTokens > 0 {
 		n := req.MaxTokens
@@ -153,6 +164,23 @@ func (p *OpenAIResponsesProvider) buildPayload(req *Request, stream bool) ([]byt
 	}
 	payload.Stream = stream
 	return mergeExtraJSON(payload, req.Extra)
+}
+
+// respTextFormat maps the unified ResponseFormat onto the Responses
+// text.format field.
+func respTextFormat(f *ResponseFormat) any {
+	if f == nil {
+		return nil
+	}
+	if f.Schema == nil {
+		return map[string]any{"type": "json_object"}
+	}
+	return map[string]any{
+		"type":   "json_schema",
+		"name":   f.schemaName(),
+		"schema": f.Schema,
+		"strict": f.Strict,
+	}
 }
 
 // buildInput converts unified messages into Responses input items. Assistant

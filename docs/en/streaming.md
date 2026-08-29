@@ -31,7 +31,7 @@ func (s *Session) AskStream(ctx context.Context, onEvent func(Event), messages .
 
 ## Complete event reference
 
-`Event` is a sealed interface; the full set of implementations is listed below. Events are delivered by value (not pointer).
+`Event` is a sealed interface; the full set of implementations is listed below. Events are delivered by value (not pointer), and every event carries a `ConversationID` field (see "Conversation IDs" below).
 
 ### Provider-level events (produced by both `client.Stream` and `agent.RunStream`)
 
@@ -54,8 +54,20 @@ func (s *Session) AskStream(ctx context.Context, onEvent func(Event), messages .
 | `ToolCallEvent` | `Call ToolCall` | A tool is about to execute: fires **after the ToolCallHook approved it, before execution**. `Call` is the complete call (`ID` / `Name` / `Arguments` raw JSON). Calls denied by the hook do not fire this event |
 | `ToolResultEvent` | `Call ToolCall` `Result ToolResult` | A tool finished executing. `Result.Content` is what goes back to the model; `Result.IsError` marks failure (errors are fed back to the model as tool results, the loop continues). Also fires for hook-denied or cancellation-skipped calls (`IsError=true`) |
 | `AgentDoneEvent` | `Result *AgentResult` | The agent loop finished normally (model produced a final answer); `Result` is the same object as the return value. **Not fired on max turns, errors or cancellation** — check the return value / error for those |
-| `SubAgentEvent` | `SubAgent string` `Event Event` | Wraps an event from inside a delegated sub-agent's loop; `SubAgent` is the sub-agent's name. Only produced when the parent agent enables `WithSubAgentEvents(true)`, see [Sub-Agents](subagents.md) |
+| `SubAgentEvent` | `SubAgent string` `Event Event` | Wraps an event from inside a delegated sub-agent's loop; `SubAgent` is the sub-agent's name. Only produced when the parent agent enables `WithSubAgentEvents(true)`, see [Sub-Agents](subagents.md). The outer `ConversationID` is the parent conversation's; the inner `Event` carries the sub-agent's own run ID |
 | `SessionCompactEvent` | `Summary string` `TokensBefore int` | A session auto-compacted its history at the end of a run (only via `AskStream`, on sessions with `WithAutoCompact` enabled). `Summary` is the generated summary, `TokensBefore` the context tokens before compaction; see [Sessions](session.md) |
+
+## Conversation IDs
+
+Every event type carries a `ConversationID string` field identifying the conversation/run it belongs to:
+
+- `Session.AskStream`: the session's ID (`sess-` prefix, i.e. `Session.ID()`), stable across asks of the same session.
+- Bare `agent.RunStream`: a fresh `run-`-prefixed ID per run, matching the returned `AgentResult.ConversationID`.
+- Bare `client.Stream`: no agent layer is involved, so the event `ConversationID` is the empty string.
+
+`SubAgentEvent` has two levels of ID: the outer `SubAgentEvent.ConversationID` is the **parent conversation's** ID (sub-agent events are forwarded to the parent agent's callback and belong to the parent conversation), while the inner `Event` carries the ID of the **sub-agent's own run** (`run-` prefix). Filtering on both levels lets you tell the main agent's output apart from each sub-agent's.
+
+Consumers can use `ConversationID` to demultiplex event streams from concurrent sessions/runs, or to correlate events with logs and billing records.
 
 ## Typical event sequences
 

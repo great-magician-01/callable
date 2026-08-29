@@ -82,6 +82,7 @@ func (a *Agent) RunStream(ctx context.Context, onEvent func(Event), messages ...
 
 ```go
 type AgentResult struct {
+    ConversationID string    // 本次运行所属会话的 ID：Session Ask 为 sess- 前缀的会话 ID；裸 Run/RunStream 为 run- 前缀的每次运行新 ID
     FinalText  string    // 模型的最终回答；未正常完成时为空或部分文本
     Messages   []Message // 本次运行的完整轨迹：输入消息 + 每条 assistant 消息与工具结果
     Usage      Usage     // 跨所有轮次累计的 token 用量
@@ -100,6 +101,8 @@ type AgentResult struct {
 `Usage` 字段：`InputTokens / OutputTokens / ReasoningTokens / CacheReadTokens / CacheWriteTokens`，为所有轮次之和。
 
 `Messages` 不包含系统提示词，只含输入与本次循环产生的消息，可直接交给 `Session.SetHistory` 或 JSON 序列化持久化。消息结构见[消息模型](messages.md)。
+
+`ConversationID` 同时出现在本次运行所有流式事件的 `ConversationID` 字段上（见[流式事件](streaming.md)）；多个并发运行/会话共用一个事件回调时，用它区分归属。
 
 ## 审批钩子：ToolCallHook
 
@@ -263,5 +266,6 @@ func main() {
 
 - `WithMaxTurns` 默认 25 已经足够大，但对可能陷入工具循环的任务（模型反复调用同一工具）仍建议显式设置并处理 `MaxTurnsError`。
 - `Agent` 本身无状态、可并发复用；跨调用的历史由 [Session](session.md) 维护。
+- 需要观测 loop 内部的每次模型调用时（日志、trace、token 成本统计），用 Client 级的 `WithRequestHook` / `WithResponseHook`——loop 跑 N 轮钩子就触发 N 次，见[快速开始](getting-started.md)。
 - 正在执行中的工具函数会收到同一个 `ctx`，工具实现应自行响应取消——Go 无法强制杀死无视 ctx 的 goroutine。
 - 系统提示词由 agent 自动组装（基础提示词 + skill 索引 + 子代理索引），传入 `Run` 的消息里不要再带 `System(...)`。
