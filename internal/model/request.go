@@ -1,4 +1,4 @@
-package core
+package model
 
 // Request is a provider-agnostic model request. Zero-value fields fall back
 // to Client and Agent defaults before the request reaches a provider.

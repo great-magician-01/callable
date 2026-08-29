@@ -1,4 +1,4 @@
-package core
+package model
 
 // ResponseFormat constrains the model's output format (structured output).
 // Set it on a request with Request.WithResponseFormat, or as a client default
@@ -55,12 +55,4 @@ func JSONSchema(name string, schema map[string]any, strict bool) ResponseFormat 
 //	err = resp.DecodeJSON(&recipe)
 func JSONSchemaFor[T any](name string, strict bool) ResponseFormat {
 	return ResponseFormat{Name: name, Schema: schemaFor[T](), Strict: strict}
-}
-
-// schemaName returns the schema name providers require, defaulting blanks.
-func (f ResponseFormat) schemaName() string {
-	if f.Name != "" {
-		return f.Name
-	}
-	return "output"
 }

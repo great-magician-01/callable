@@ -26,7 +26,8 @@
 //	result, err := agent.Run(ctx, callable.User("Hello!"))
 //
 // This file is the single public entry point of the module; the
-// implementation lives in internal/core and is re-exported here.
+// implementation lives in internal/model and internal/core and is re-exported
+// here.
 package callable
 
 import (
@@ -35,104 +36,105 @@ import (
 	"time"
 
 	core "github.com/great-magician-01/callable/internal/core"
+	model "github.com/great-magician-01/callable/internal/model"
 )
 
 // ── Messages and content parts ─────────────────────────────────────────────
 
 type (
 	// Role identifies who authored a message.
-	Role = core.Role
+	Role = model.Role
 	// Message is a provider-agnostic chat message; its Parts may mix text,
 	// images, thinking, tool calls and tool results.
-	Message = core.Message
+	Message = model.Message
 
 	// Part is one piece of message content (sealed interface).
-	Part = core.Part
+	Part = model.Part
 	// TextPart is a piece of text.
-	TextPart = core.TextPart
+	TextPart = model.TextPart
 	// ImagePart is an image given by path, URL or raw bytes.
-	ImagePart = core.ImagePart
+	ImagePart = model.ImagePart
 	// ThinkingPart is a piece of model reasoning.
-	ThinkingPart = core.ThinkingPart
+	ThinkingPart = model.ThinkingPart
 	// ToolCallPart is a tool invocation requested by the model.
-	ToolCallPart = core.ToolCallPart
+	ToolCallPart = model.ToolCallPart
 	// ToolResultPart carries the output of a tool execution back to the model.
-	ToolResultPart = core.ToolResultPart
+	ToolResultPart = model.ToolResultPart
 )
 
 // Message roles.
 const (
-	RoleSystem    = core.RoleSystem
-	RoleUser      = core.RoleUser
-	RoleAssistant = core.RoleAssistant
-	RoleTool      = core.RoleTool
+	RoleSystem    = model.RoleSystem
+	RoleUser      = model.RoleUser
+	RoleAssistant = model.RoleAssistant
+	RoleTool      = model.RoleTool
 )
 
 // System builds a system message.
-func System(text string) Message { return core.System(text) }
+func System(text string) Message { return model.System(text) }
 
 // User builds a user message from strings and/or Parts.
-func User(parts ...any) Message { return core.User(parts...) }
+func User(parts ...any) Message { return model.User(parts...) }
 
 // Assistant builds an assistant message from strings and/or Parts.
-func Assistant(parts ...any) Message { return core.Assistant(parts...) }
+func Assistant(parts ...any) Message { return model.Assistant(parts...) }
 
 // ToolResults builds a message carrying tool execution results.
-func ToolResults(results ...ToolResultPart) Message { return core.ToolResults(results...) }
+func ToolResults(results ...ToolResultPart) Message { return model.ToolResults(results...) }
 
 // Text builds a TextPart.
-func Text(text string) TextPart { return core.Text(text) }
+func Text(text string) TextPart { return model.Text(text) }
 
 // Image references an image by file path or http(s) URL; local files are read
 // and converted to the provider's native image format at send time.
-func Image(ref string) ImagePart { return core.Image(ref) }
+func Image(ref string) ImagePart { return model.Image(ref) }
 
 // ImageURL references an image by http(s) URL.
-func ImageURL(url string) ImagePart { return core.ImageURL(url) }
+func ImageURL(url string) ImagePart { return model.ImageURL(url) }
 
 // ImageBytes wraps raw image bytes with an explicit media type.
-func ImageBytes(data []byte, mediaType string) ImagePart { return core.ImageBytes(data, mediaType) }
+func ImageBytes(data []byte, mediaType string) ImagePart { return model.ImageBytes(data, mediaType) }
 
 // UnmarshalPart decodes a single serialized Part.
-func UnmarshalPart(data []byte) (Part, error) { return core.UnmarshalPart(data) }
+func UnmarshalPart(data []byte) (Part, error) { return model.UnmarshalPart(data) }
 
 // ── Requests, responses, usage ─────────────────────────────────────────────
 
 type (
 	// Request is a single provider-agnostic model call.
-	Request = core.Request
+	Request = model.Request
 	// Response is the assembled result of a model call.
-	Response = core.Response
+	Response = model.Response
 	// StopReason explains why generation stopped.
-	StopReason = core.StopReason
+	StopReason = model.StopReason
 	// ToolCall is a single tool invocation requested by the model.
-	ToolCall = core.ToolCall
+	ToolCall = model.ToolCall
 	// Usage reports token consumption of a call (or an accumulated run).
-	Usage = core.Usage
+	Usage = model.Usage
 	// ResponseFormat constrains the model's output format (structured
 	// output); see JSONMode, JSONSchema and JSONSchemaFor.
-	ResponseFormat = core.ResponseFormat
+	ResponseFormat = model.ResponseFormat
 )
 
 // Stop reasons.
 const (
-	StopReasonEndTurn   = core.StopReasonEndTurn
-	StopReasonToolCalls = core.StopReasonToolCalls
-	StopReasonMaxTokens = core.StopReasonMaxTokens
-	StopReasonOther     = core.StopReasonOther
+	StopReasonEndTurn   = model.StopReasonEndTurn
+	StopReasonToolCalls = model.StopReasonToolCalls
+	StopReasonMaxTokens = model.StopReasonMaxTokens
+	StopReasonOther     = model.StopReasonOther
 )
 
 // NewRequest builds a Request from messages; configure it with its With* methods.
-func NewRequest(messages ...Message) *Request { return core.NewRequest(messages...) }
+func NewRequest(messages ...Message) *Request { return model.NewRequest(messages...) }
 
 // JSONMode requests free-form JSON output: the model answers with a JSON
 // value of any shape. Set it with Request.WithResponseFormat.
-func JSONMode() ResponseFormat { return core.JSONMode() }
+func JSONMode() ResponseFormat { return model.JSONMode() }
 
 // JSONSchema requests output conforming to the given JSON Schema. Set it with
 // Request.WithResponseFormat.
 func JSONSchema(name string, schema map[string]any, strict bool) ResponseFormat {
-	return core.JSONSchema(name, schema, strict)
+	return model.JSONSchema(name, schema, strict)
 }
 
 // JSONSchemaFor requests output conforming to the JSON Schema reflected from
@@ -150,40 +152,40 @@ func JSONSchema(name string, schema map[string]any, strict bool) ResponseFormat 
 //	var recipe Recipe
 //	err = resp.DecodeJSON(&recipe)
 func JSONSchemaFor[T any](name string, strict bool) ResponseFormat {
-	return core.JSONSchemaFor[T](name, strict)
+	return model.JSONSchemaFor[T](name, strict)
 }
 
 // ── Streaming events ───────────────────────────────────────────────────────
 
 type (
 	// Event is a streaming event (sealed interface); handle with a type switch.
-	Event = core.Event
+	Event = model.Event
 	// MessageStartEvent marks the beginning of an assistant message.
-	MessageStartEvent = core.MessageStartEvent
+	MessageStartEvent = model.MessageStartEvent
 	// ThinkingDeltaEvent carries an increment of reasoning text.
-	ThinkingDeltaEvent = core.ThinkingDeltaEvent
+	ThinkingDeltaEvent = model.ThinkingDeltaEvent
 	// TextDeltaEvent carries an increment of the answer text.
-	TextDeltaEvent = core.TextDeltaEvent
+	TextDeltaEvent = model.TextDeltaEvent
 	// ToolCallDeltaEvent carries an increment of a streamed tool call.
-	ToolCallDeltaEvent = core.ToolCallDeltaEvent
+	ToolCallDeltaEvent = model.ToolCallDeltaEvent
 	// MessageDoneEvent marks the end of an assistant message.
-	MessageDoneEvent = core.MessageDoneEvent
+	MessageDoneEvent = model.MessageDoneEvent
 	// TurnStartEvent marks the beginning of an agent loop turn.
-	TurnStartEvent = core.TurnStartEvent
+	TurnStartEvent = model.TurnStartEvent
 	// TurnEndEvent marks the end of a turn.
-	TurnEndEvent = core.TurnEndEvent
+	TurnEndEvent = model.TurnEndEvent
 	// ToolCallEvent is emitted just before an approved tool executes.
-	ToolCallEvent = core.ToolCallEvent
+	ToolCallEvent = model.ToolCallEvent
 	// ToolResultEvent is emitted after a tool finished executing.
-	ToolResultEvent = core.ToolResultEvent
+	ToolResultEvent = model.ToolResultEvent
 	// AgentDoneEvent is emitted when the agent loop finished.
-	AgentDoneEvent = core.AgentDoneEvent
+	AgentDoneEvent = model.AgentDoneEvent
 	// SubAgentEvent wraps an event emitted inside a delegated sub-agent's
 	// loop; only produced when WithSubAgentEvents is enabled.
-	SubAgentEvent = core.SubAgentEvent
+	SubAgentEvent = model.SubAgentEvent
 	// SessionCompactEvent is emitted after a session auto-compacts its
 	// history.
-	SessionCompactEvent = core.SessionCompactEvent
+	SessionCompactEvent = model.SessionCompactEvent
 )
 
 // ── Thinking / reasoning ───────────────────────────────────────────────────
@@ -191,17 +193,17 @@ type (
 type (
 	// Effort is a unified thinking-effort level mapped to each provider's
 	// native controls.
-	Effort = core.Effort
+	Effort = model.Effort
 	// Thinking configures thinking/reasoning for a request or agent.
-	Thinking = core.Thinking
+	Thinking = model.Thinking
 )
 
 // Effort levels.
 const (
-	EffortOff    = core.EffortOff
-	EffortLow    = core.EffortLow
-	EffortMedium = core.EffortMedium
-	EffortHigh   = core.EffortHigh
+	EffortOff    = model.EffortOff
+	EffortLow    = model.EffortLow
+	EffortMedium = model.EffortMedium
+	EffortHigh   = model.EffortHigh
 )
 
 // ── Errors ─────────────────────────────────────────────────────────────────
@@ -218,30 +220,30 @@ type (
 
 type (
 	// ToolDefinition is the schema advertised to the model.
-	ToolDefinition = core.ToolDefinition
+	ToolDefinition = model.ToolDefinition
 	// ToolResult is the outcome of a tool execution.
-	ToolResult = core.ToolResult
+	ToolResult = model.ToolResult
 	// Tool is a callable exposed to the model.
-	Tool = core.Tool
+	Tool = model.Tool
 )
 
 // NewTool creates a Tool from a handler whose argument struct is reflected
 // into a JSON Schema. Describe parameters with `jsonschema` struct tags.
 func NewTool[A any](name, description string, fn func(ctx context.Context, args A) (any, error)) Tool {
-	return core.NewTool[A](name, description, fn)
+	return model.NewTool[A](name, description, fn)
 }
 
 // NewRawTool creates a Tool with a hand-written JSON Schema; the handler
 // receives the raw JSON arguments string.
 func NewRawTool(name, description, parametersJSON string, fn func(ctx context.Context, rawArgs string) (any, error)) Tool {
-	return core.NewRawTool(name, description, parametersJSON, fn)
+	return model.NewRawTool(name, description, parametersJSON, fn)
 }
 
 // TextResult wraps a plain-text tool output.
-func TextResult(content string) ToolResult { return core.TextResult(content) }
+func TextResult(content string) ToolResult { return model.TextResult(content) }
 
 // ErrorResult wraps an error as a failed tool result.
-func ErrorResult(err error) ToolResult { return core.ErrorResult(err) }
+func ErrorResult(err error) ToolResult { return model.ErrorResult(err) }
 
 // ── Web search ─────────────────────────────────────────────────────────────
 

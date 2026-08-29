@@ -178,23 +178,23 @@ func (p *OpenAIProvider) buildPayload(req *Request, stream bool) ([]byte, error)
 		// to high: GLM-5.3 rejects medium outright, and 5.2 folds low/medium
 		// into high server-side anyway.
 		payload.Thinking = &oaiCompatThinking{Type: "enabled"}
-		payload.ReasoningEffort = string(glmEffort(req.Thinking.effectiveEffort()))
+		payload.ReasoningEffort = string(glmEffort(effectiveEffort(*req.Thinking)))
 	case thinkingOn && p.compat&CompatArk != 0:
 		// Ark accepts low/medium/high natively; pass the effort through.
 		payload.Thinking = &oaiCompatThinking{Type: "enabled"}
-		payload.ReasoningEffort = string(req.Thinking.effectiveEffort())
+		payload.ReasoningEffort = string(effectiveEffort(*req.Thinking))
 	case thinkingOn && p.compat&CompatDeepSeek != 0:
 		// DeepSeek V4: explicit switch plus effort. medium maps to high
 		// server-side; thinking is on by default when nothing is sent.
 		payload.Thinking = &oaiCompatThinking{Type: "enabled"}
-		payload.ReasoningEffort = string(req.Thinking.effectiveEffort())
+		payload.ReasoningEffort = string(effectiveEffort(*req.Thinking))
 	case thinkingOn && p.compat&CompatQwen != 0:
 		payload.EnableThinking = ptr(true)
 		if req.Thinking.BudgetTokens > 0 {
 			payload.ThinkingBudget = ptr(req.Thinking.BudgetTokens)
 		}
 	case thinkingOn:
-		payload.ReasoningEffort = string(req.Thinking.effectiveEffort())
+		payload.ReasoningEffort = string(effectiveEffort(*req.Thinking))
 	case req.Thinking != nil: // explicitly disabled
 		// DeepSeek defaults to thinking on, so disabling must be explicit.
 		// (GLM-5.3 rejects "disabled" outright; its 400 says to use low.)
@@ -242,7 +242,7 @@ func oaiChatResponseFormat(f *ResponseFormat) any {
 	return map[string]any{
 		"type": "json_schema",
 		"json_schema": map[string]any{
-			"name":   f.schemaName(),
+			"name":   schemaName(f),
 			"schema": f.Schema,
 			"strict": f.Strict,
 		},
@@ -345,7 +345,7 @@ func (p *OpenAIProvider) convertMessages(messages []Message) ([]oaiChatMessage, 
 				}
 				u := resolved.URL
 				if u == "" {
-					u = resolved.dataURL()
+					u = resolved.DataURL()
 				}
 				parts = append(parts, oaiUserContentPart{
 					Type:     "image_url",

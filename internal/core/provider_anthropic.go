@@ -167,7 +167,7 @@ func (p *AnthropicProvider) buildPayload(req *Request, stream bool) ([]byte, err
 		maxTokens = 4096
 	}
 	if req.Thinking != nil && req.Thinking.Enabled() {
-		budget := req.Thinking.anthropicBudgetTokens()
+		budget := anthropicBudgetTokens(*req.Thinking)
 		if budget < 1024 { // Anthropic minimum
 			budget = 1024
 		}

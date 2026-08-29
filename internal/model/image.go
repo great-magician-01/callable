@@ -1,4 +1,4 @@
-package core
+package model
 
 import (
 	"encoding/base64"
@@ -30,8 +30,8 @@ func ImageBytes(data []byte, mediaType string) ImagePart {
 	return ImagePart{Data: data, MediaType: mediaType}
 }
 
-// resolvedImage is an ImagePart after local resolution.
-type resolvedImage struct {
+// ResolvedImage is an ImagePart after local resolution.
+type ResolvedImage struct {
 	// URL is non-empty when the image is remote.
 	URL string
 	// Data is non-nil for local images.
@@ -40,14 +40,14 @@ type resolvedImage struct {
 	MediaType string
 }
 
-// resolveImage loads the image bytes and determines its MIME type. Resolution
+// ResolveImage loads the image bytes and determines its MIME type. Resolution
 // is lazy: it happens once per request, at provider conversion time.
-func resolveImage(p ImagePart) (resolvedImage, error) {
+func ResolveImage(p ImagePart) (ResolvedImage, error) {
 	if p.URL != "" {
-		return resolvedImage{URL: p.URL}, nil
+		return ResolvedImage{URL: p.URL}, nil
 	}
 	if p.Data == nil && p.Path == "" {
-		return resolvedImage{}, fmt.Errorf("callable: image part has no path, url or data")
+		return ResolvedImage{}, fmt.Errorf("callable: image part has no path, url or data")
 	}
 
 	var data []byte
@@ -58,7 +58,7 @@ func resolveImage(p ImagePart) (resolvedImage, error) {
 	} else {
 		data, err = os.ReadFile(p.Path)
 		if err != nil {
-			return resolvedImage{}, fmt.Errorf("callable: read image %s: %w", p.Path, err)
+			return ResolvedImage{}, fmt.Errorf("callable: read image %s: %w", p.Path, err)
 		}
 	}
 	if mediaType == "" && p.Path != "" {
@@ -70,13 +70,13 @@ func resolveImage(p ImagePart) (resolvedImage, error) {
 	if !strings.HasPrefix(mediaType, "image/") {
 		// http.DetectContentType returns "application/octet-stream" for
 		// formats it cannot identify.
-		return resolvedImage{}, fmt.Errorf("callable: unsupported image media type %q (supported: jpeg, png, gif, webp)", mediaType)
+		return ResolvedImage{}, fmt.Errorf("callable: unsupported image media type %q (supported: jpeg, png, gif, webp)", mediaType)
 	}
-	return resolvedImage{Data: data, MediaType: mediaType}, nil
+	return ResolvedImage{Data: data, MediaType: mediaType}, nil
 }
 
-// dataURL renders the image as a data: URL for OpenAI-style providers.
-func (r resolvedImage) dataURL() string {
+// DataURL renders the image as a data: URL for OpenAI-style providers.
+func (r ResolvedImage) DataURL() string {
 	return "data:" + r.MediaType + ";base64," + base64.StdEncoding.EncodeToString(r.Data)
 }
 

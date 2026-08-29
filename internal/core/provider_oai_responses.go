@@ -148,7 +148,7 @@ func (p *OpenAIResponsesProvider) buildPayload(req *Request, stream bool) ([]byt
 	thinkingOn := req.Thinking != nil && req.Thinking.Enabled()
 	if thinkingOn {
 		payload.Reasoning = &respReasoning{
-			Effort:  string(req.Thinking.effectiveEffort()),
+			Effort:  string(effectiveEffort(*req.Thinking)),
 			Summary: "auto",
 		}
 	} else {
@@ -177,7 +177,7 @@ func respTextFormat(f *ResponseFormat) any {
 	}
 	return map[string]any{
 		"type":   "json_schema",
-		"name":   f.schemaName(),
+		"name":   schemaName(f),
 		"schema": f.Schema,
 		"strict": f.Strict,
 	}
@@ -249,7 +249,7 @@ func (p *OpenAIResponsesProvider) buildInput(messages []Message) (string, []any,
 				}
 				u := resolved.URL
 				if u == "" {
-					u = resolved.dataURL()
+					u = resolved.DataURL()
 				}
 				contents = append(contents, respUserContent{Type: "input_image", ImageURL: u})
 			case ToolResultPart:

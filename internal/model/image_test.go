@@ -1,4 +1,4 @@
-package core
+package model
 
 import (
 	"os"
@@ -30,9 +30,9 @@ func TestResolveImagePath(t *testing.T) {
 	if err := os.WriteFile(path, pngHeader, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err := resolveImage(Image(path))
+	res, err := ResolveImage(Image(path))
 	if err != nil {
-		t.Fatalf("resolveImage: %v", err)
+		t.Fatalf("ResolveImage: %v", err)
 	}
 	if res.MediaType != "image/png" {
 		t.Errorf("media type = %q", res.MediaType)
@@ -41,15 +41,15 @@ func TestResolveImagePath(t *testing.T) {
 		t.Errorf("data length = %d", len(res.Data))
 	}
 	// 12 bytes (PNG signature + 4 zero bytes) encode to exactly 16 base64 chars.
-	if res.dataURL() != "data:image/png;base64,iVBORw0KGgoAAAAA" {
-		t.Errorf("dataURL = %q", res.dataURL())
+	if res.DataURL() != "data:image/png;base64,iVBORw0KGgoAAAAA" {
+		t.Errorf("DataURL = %q", res.DataURL())
 	}
 }
 
 func TestResolveImageBytesSniffing(t *testing.T) {
-	res, err := resolveImage(ImageBytes(pngHeader, ""))
+	res, err := ResolveImage(ImageBytes(pngHeader, ""))
 	if err != nil {
-		t.Fatalf("resolveImage: %v", err)
+		t.Fatalf("ResolveImage: %v", err)
 	}
 	if res.MediaType != "image/png" {
 		t.Errorf("media type = %q, want image/png (sniffed)", res.MediaType)
@@ -57,9 +57,9 @@ func TestResolveImageBytesSniffing(t *testing.T) {
 }
 
 func TestResolveImageURLPassthrough(t *testing.T) {
-	res, err := resolveImage(ImageURL("https://example.com/a.jpg"))
+	res, err := ResolveImage(ImageURL("https://example.com/a.jpg"))
 	if err != nil {
-		t.Fatalf("resolveImage: %v", err)
+		t.Fatalf("ResolveImage: %v", err)
 	}
 	if res.URL != "https://example.com/a.jpg" || res.Data != nil {
 		t.Errorf("resolved = %+v", res)
@@ -67,7 +67,7 @@ func TestResolveImageURLPassthrough(t *testing.T) {
 }
 
 func TestResolveImageInvalid(t *testing.T) {
-	if _, err := resolveImage(ImagePart{}); err == nil {
+	if _, err := ResolveImage(ImagePart{}); err == nil {
 		t.Error("empty image part should fail")
 	}
 	dir := t.TempDir()
@@ -76,7 +76,7 @@ func TestResolveImageInvalid(t *testing.T) {
 		t.Fatal(err)
 	}
 	// .txt extension yields no media type and sniffing yields text/plain.
-	if _, err := resolveImage(Image(path)); err == nil {
+	if _, err := ResolveImage(Image(path)); err == nil {
 		t.Error("text file should fail image resolution")
 	}
 }
