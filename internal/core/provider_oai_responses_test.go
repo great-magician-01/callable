@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"testing"
 )
@@ -36,27 +37,27 @@ func TestResponsesBuildPayloadBasics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := decodeMap(t, body)
+	m := DecodeMap(t, body)
 
-	if asString(t, m["model"]) != "gpt-x" {
+	if AsString(t, m["model"]) != "gpt-x" {
 		t.Errorf("model = %v", m["model"])
 	}
-	if asString(t, m["instructions"]) != "be nice" {
+	if AsString(t, m["instructions"]) != "be nice" {
 		t.Errorf("instructions = %v", m["instructions"])
 	}
-	if asFloat(t, m["max_output_tokens"]) != 88 {
+	if AsFloat(t, m["max_output_tokens"]) != 88 {
 		t.Errorf("max_output_tokens = %v", m["max_output_tokens"])
 	}
 	if _, present := m["reasoning"]; present {
 		t.Errorf("reasoning should be absent when thinking is off")
 	}
-	input := asSlice(t, m["input"])
-	item := asMap(t, input[0])
-	if asString(t, item["role"]) != "user" {
+	input := AsSlice(t, m["input"])
+	item := AsMap(t, input[0])
+	if AsString(t, item["role"]) != "user" {
 		t.Errorf("input item = %v", item)
 	}
-	content := asSlice(t, item["content"])
-	if asString(t, asMap(t, content[0])["type"]) != "input_text" {
+	content := AsSlice(t, item["content"])
+	if AsString(t, AsMap(t, content[0])["type"]) != "input_text" {
 		t.Errorf("input content = %v", content[0])
 	}
 }
@@ -66,9 +67,9 @@ func TestResponsesBuildPayloadThinking(t *testing.T) {
 	body, _ := p.buildPayload(
 		NewRequest(User("hi")).WithModel("gpt-x").WithThinking(Thinking{Effort: EffortHigh}).WithTemperature(0.7),
 		false)
-	m := decodeMap(t, body)
-	reasoning := asMap(t, m["reasoning"])
-	if asString(t, reasoning["effort"]) != "high" {
+	m := DecodeMap(t, body)
+	reasoning := AsMap(t, m["reasoning"])
+	if AsString(t, reasoning["effort"]) != "high" {
 		t.Errorf("effort = %v", reasoning["effort"])
 	}
 	if _, present := m["temperature"]; present {
@@ -82,10 +83,10 @@ func TestResponsesBuildPayloadTools(t *testing.T) {
 		return nil, nil
 	})
 	body, _ := p.buildPayload(NewRequest(User("hi")).WithModel("gpt-x").WithTools(tool), false)
-	tools := asSlice(t, decodeMap(t, body)["tools"])
-	tw := asMap(t, tools[0])
+	tools := AsSlice(t, DecodeMap(t, body)["tools"])
+	tw := AsMap(t, tools[0])
 	// Responses tools are flattened, not nested under "function".
-	if asString(t, tw["type"]) != "function" || asString(t, tw["name"]) != "get_weather" {
+	if AsString(t, tw["type"]) != "function" || AsString(t, tw["name"]) != "get_weather" {
 		t.Errorf("tool = %v", tw)
 	}
 	if _, present := tw["parameters"]; !present {
@@ -102,13 +103,13 @@ func TestResponsesBuildInputImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := itemsToMaps(t, input)
-	item := asMap(t, items[0])
-	content := asSlice(t, item["content"])
-	img := asMap(t, content[1])
-	if asString(t, img["type"]) != "input_image" {
+	item := AsMap(t, items[0])
+	content := AsSlice(t, item["content"])
+	img := AsMap(t, content[1])
+	if AsString(t, img["type"]) != "input_image" {
 		t.Fatalf("image content = %v", img)
 	}
-	if !strings.HasPrefix(asString(t, img["image_url"]), "data:image/png;base64,") {
+	if !strings.HasPrefix(AsString(t, img["image_url"]), "data:image/png;base64,") {
 		t.Errorf("image_url = %v", img["image_url"])
 	}
 }
@@ -137,26 +138,26 @@ func TestResponsesBuildInputReplayAndReconstruct(t *testing.T) {
 	items := itemsToMaps(t, input)
 
 	// asst -> 2 raw items
-	if got := asString(t, asMap(t, items[0])["type"]); got != "reasoning" {
+	if got := AsString(t, AsMap(t, items[0])["type"]); got != "reasoning" {
 		t.Errorf("input[0] = %v, want raw reasoning item", items[0])
 	}
-	if got := asString(t, asMap(t, items[1])["type"]); got != "function_call" {
+	if got := AsString(t, AsMap(t, items[1])["type"]); got != "function_call" {
 		t.Errorf("input[1] = %v, want raw function_call item", items[1])
 	}
 	// toolMsg -> function_call_output (must precede the next user content)
-	if got := asString(t, asMap(t, items[2])["type"]); got != "function_call_output" {
+	if got := AsString(t, AsMap(t, items[2])["type"]); got != "function_call_output" {
 		t.Errorf("input[2] = %v, want function_call_output", items[2])
 	}
-	if got := asString(t, asMap(t, items[2])["call_id"]); got != "call_1" {
+	if got := AsString(t, AsMap(t, items[2])["call_id"]); got != "call_1" {
 		t.Errorf("call_id = %v", items[2])
 	}
 	// plain -> reconstructed assistant message item
-	third := asMap(t, items[3])
-	if asString(t, third["type"]) != "message" || asString(t, third["role"]) != "assistant" {
+	third := AsMap(t, items[3])
+	if AsString(t, third["type"]) != "message" || AsString(t, third["role"]) != "assistant" {
 		t.Errorf("input[3] = %v, want reconstructed assistant message", items[3])
 	}
 	// user
-	if asString(t, asMap(t, items[4])["role"]) != "user" {
+	if AsString(t, AsMap(t, items[4])["role"]) != "user" {
 		t.Errorf("input[4] = %v, want user", items[4])
 	}
 }
@@ -253,7 +254,7 @@ func TestResponsesStream(t *testing.T) {
 	)
 
 	var bodies []string
-	server := newMockServer(t, []string{stream}, &bodies)
+	server := NewMockServer(t, []string{stream}, &bodies)
 	client := NewClient(NewOpenAIResponsesProvider("k", server.URL), WithModel("gpt-x"))
 
 	var events []Event
@@ -318,7 +319,7 @@ func TestResponsesAgentFlow(t *testing.T) {
 	)
 
 	var bodies []string
-	server := newMockServer(t, []string{turn1, turn2}, &bodies)
+	server := NewMockServer(t, []string{turn1, turn2}, &bodies)
 	client := NewClient(NewOpenAIResponsesProvider("k", server.URL), WithModel("gpt-x"))
 
 	var executed []weatherArgs

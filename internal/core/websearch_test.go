@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	. "github.com/great-magician-01/callable/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -72,15 +73,15 @@ func TestChatWebSearchGolden(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		tools := asSlice(t, decodeMap(t, body)["tools"])
+		tools := AsSlice(t, DecodeMap(t, body)["tools"])
 		if len(tools) != 1 {
 			t.Fatalf("tools = %v", tools)
 		}
-		entry := asMap(t, tools[0])
-		if got := asString(t, entry["type"]); got != "web_search" {
+		entry := AsMap(t, tools[0])
+		if got := AsString(t, entry["type"]); got != "web_search" {
 			t.Fatalf("type = %q", got)
 		}
-		ws := asMap(t, entry["web_search"])
+		ws := AsMap(t, entry["web_search"])
 		if ws["enable"] != true || ws["search_result"] != true {
 			t.Fatalf("web_search = %v", ws)
 		}
@@ -93,7 +94,7 @@ func TestChatWebSearchGolden(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		m := decodeMap(t, body)
+		m := DecodeMap(t, body)
 		if m["enable_search"] != true {
 			t.Fatalf("enable_search = %v (body %s)", m["enable_search"], body)
 		}
@@ -109,16 +110,16 @@ func TestChatWebSearchGolden(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		tools := asSlice(t, decodeMap(t, body)["tools"])
+		tools := AsSlice(t, DecodeMap(t, body)["tools"])
 		if len(tools) != 1 {
 			t.Fatalf("tools = %v", tools)
 		}
-		entry := asMap(t, tools[0])
-		if got := asString(t, entry["type"]); got != "builtin_function" {
+		entry := AsMap(t, tools[0])
+		if got := AsString(t, entry["type"]); got != "builtin_function" {
 			t.Fatalf("type = %q", got)
 		}
-		fn := asMap(t, entry["function"])
-		if got := asString(t, fn["name"]); got != kimiWebSearchToolName {
+		fn := AsMap(t, entry["function"])
+		if got := AsString(t, fn["name"]); got != kimiWebSearchToolName {
 			t.Fatalf("function.name = %q", got)
 		}
 		if _, ok := fn["parameters"]; ok {
@@ -134,7 +135,7 @@ func TestChatWebSearchGolden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			m := decodeMap(t, body)
+			m := DecodeMap(t, body)
 			if _, ok := m["tools"]; ok {
 				t.Errorf("%s: unexpected tools: %s", baseURL, body)
 			}
@@ -153,15 +154,15 @@ func TestAnthropicWebSearchGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tools := asSlice(t, decodeMap(t, body)["tools"])
+	tools := AsSlice(t, DecodeMap(t, body)["tools"])
 	if len(tools) != 1 {
 		t.Fatalf("tools = %v", tools)
 	}
-	entry := asMap(t, tools[0])
-	if got := asString(t, entry["type"]); got != "web_search_20250305" {
+	entry := AsMap(t, tools[0])
+	if got := AsString(t, entry["type"]); got != "web_search_20250305" {
 		t.Fatalf("type = %q", got)
 	}
-	if got := asString(t, entry["name"]); got != DefaultWebSearchToolName {
+	if got := AsString(t, entry["name"]); got != DefaultWebSearchToolName {
 		t.Fatalf("name = %q", got)
 	}
 
@@ -170,7 +171,7 @@ func TestAnthropicWebSearchGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := decodeMap(t, body)["tools"]; ok {
+	if _, ok := DecodeMap(t, body)["tools"]; ok {
 		t.Fatalf("unexpected tools: %s", body)
 	}
 }
@@ -183,11 +184,11 @@ func TestResponsesWebSearchGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tools := asSlice(t, decodeMap(t, body)["tools"])
+	tools := AsSlice(t, DecodeMap(t, body)["tools"])
 	if len(tools) != 1 {
 		t.Fatalf("tools = %v", tools)
 	}
-	if got := asString(t, asMap(t, tools[0])["type"]); got != "web_search" {
+	if got := AsString(t, AsMap(t, tools[0])["type"]); got != "web_search" {
 		t.Fatalf("type = %q", got)
 	}
 
@@ -195,15 +196,15 @@ func TestResponsesWebSearchGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := decodeMap(t, body)["tools"]; ok {
+	if _, ok := DecodeMap(t, body)["tools"]; ok {
 		t.Fatalf("unexpected tools: %s", body)
 	}
 }
 
 func TestAgentWebSearchDefaultBuiltin(t *testing.T) {
 	var bodies []string
-	finalTurn := chatSSE(`{"choices":[{"delta":{"content":"done"}}]}`)
-	server := newMockServer(t, []string{finalTurn}, &bodies)
+	finalTurn := ChatSSE(`{"choices":[{"delta":{"content":"done"}}]}`)
+	server := NewMockServer(t, []string{finalTurn}, &bodies)
 	client := NewClient(serverSearchProvider{NewOpenAIProvider("k", server.URL)}, WithModel("m"))
 	agent := NewAgent(client) // default: auto -> built-in wins, no Tavily key
 
@@ -223,8 +224,8 @@ func TestAgentWebSearchDefaultBuiltin(t *testing.T) {
 
 func TestAgentWebSearchDisabled(t *testing.T) {
 	var bodies []string
-	finalTurn := chatSSE(`{"choices":[{"delta":{"content":"done"}}]}`)
-	server := newMockServer(t, []string{finalTurn}, &bodies)
+	finalTurn := ChatSSE(`{"choices":[{"delta":{"content":"done"}}]}`)
+	server := NewMockServer(t, []string{finalTurn}, &bodies)
 	client := NewClient(serverSearchProvider{NewOpenAIProvider("k", server.URL)}, WithModel("m"))
 	agent := NewAgent(client, WithWebSearch(false), WithTavilyAPIKey("tvly-test"))
 
@@ -245,7 +246,7 @@ func TestAgentWebSearchDisabled(t *testing.T) {
 func TestAgentWebSearchNoCapability(t *testing.T) {
 	// No built-in support, no Tavily key: nothing is exposed.
 	var bodies []string
-	finalTurn := chatSSE(`{"choices":[{"delta":{"content":"done"}}]}`)
+	finalTurn := ChatSSE(`{"choices":[{"delta":{"content":"done"}}]}`)
 	agent := chatAgentFixture(t, []string{finalTurn}, &bodies)
 
 	if agent.webSearchBuiltin {
@@ -277,11 +278,11 @@ func TestAgentWebSearchTavilyFallback(t *testing.T) {
 	t.Cleanup(func() { tavilySearchURL = oldURL })
 
 	var bodies []string
-	toolCallTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", DefaultWebSearchToolName, `{"query":"go 1.25"}`, true),
+	toolCallTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", DefaultWebSearchToolName, `{"query":"go 1.25"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	finalTurn := chatSSE(`{"choices":[{"delta":{"content":"Go 1.25 is out"}}]}`)
+	finalTurn := ChatSSE(`{"choices":[{"delta":{"content":"Go 1.25 is out"}}]}`)
 	agent := chatAgentFixture(t, []string{toolCallTurn, finalTurn}, &bodies,
 		WithTavilyAPIKey("tvly-test"))
 
@@ -314,8 +315,8 @@ func TestAgentWebSearchTavilyFallback(t *testing.T) {
 }
 
 func TestAgentWebSearchBuiltinPreferredOverTavily(t *testing.T) {
-	finalTurn := chatSSE(`{"choices":[{"delta":{"content":"done"}}]}`)
-	server := newMockServer(t, []string{finalTurn}, nil)
+	finalTurn := ChatSSE(`{"choices":[{"delta":{"content":"done"}}]}`)
+	server := NewMockServer(t, []string{finalTurn}, nil)
 	client := NewClient(serverSearchProvider{NewOpenAIProvider("k", server.URL)}, WithModel("m"))
 	agent := NewAgent(client, WithTavilyAPIKey("tvly-test"))
 
@@ -329,12 +330,12 @@ func TestAgentWebSearchBuiltinPreferredOverTavily(t *testing.T) {
 
 func TestAgentWebSearchKimiEcho(t *testing.T) {
 	var bodies []string
-	toolCallTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", kimiWebSearchToolName, `{"query":"latest news"}`, true),
+	toolCallTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", kimiWebSearchToolName, `{"query":"latest news"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	finalTurn := chatSSE(`{"choices":[{"delta":{"content":"here is the news"}}]}`)
-	server := newMockServer(t, []string{toolCallTurn, finalTurn}, &bodies)
+	finalTurn := ChatSSE(`{"choices":[{"delta":{"content":"here is the news"}}]}`)
+	server := NewMockServer(t, []string{toolCallTurn, finalTurn}, &bodies)
 	client := NewClient(echoSearchProvider{NewOpenAIProvider("k", server.URL)}, WithModel("m"))
 	agent := NewAgent(client)
 
@@ -353,12 +354,12 @@ func TestAgentWebSearchKimiEcho(t *testing.T) {
 		t.Fatalf("final text = %q", result.FinalText)
 	}
 	// Kimi protocol: the tool result echoes the call arguments verbatim.
-	msgs := asSlice(t, decodeMap(t, []byte(bodies[1]))["messages"])
+	msgs := AsSlice(t, DecodeMap(t, []byte(bodies[1]))["messages"])
 	var toolContent string
 	for _, m := range msgs {
-		mm := asMap(t, m)
+		mm := AsMap(t, m)
 		if mm["role"] == "tool" {
-			toolContent = asString(t, mm["content"])
+			toolContent = AsString(t, mm["content"])
 		}
 	}
 	if toolContent != `{"query":"latest news"}` {

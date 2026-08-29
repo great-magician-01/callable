@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"testing"
 )
@@ -22,31 +23,31 @@ func TestChatBuildPayloadBasics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := decodeMap(t, body)
+	m := DecodeMap(t, body)
 
-	if asString(t, m["model"]) != "m1" {
+	if AsString(t, m["model"]) != "m1" {
 		t.Errorf("model = %v", m["model"])
 	}
-	if asFloat(t, m["max_tokens"]) != 123 {
+	if AsFloat(t, m["max_tokens"]) != 123 {
 		t.Errorf("max_tokens = %v (compat endpoints use max_tokens)", m["max_tokens"])
 	}
 	if _, present := m["max_completion_tokens"]; present {
 		t.Errorf("max_completion_tokens should not be set on compat endpoints")
 	}
-	if asFloat(t, m["temperature"]) != 0.5 {
+	if AsFloat(t, m["temperature"]) != 0.5 {
 		t.Errorf("temperature = %v", m["temperature"])
 	}
 
-	msgs := asSlice(t, m["messages"])
+	msgs := AsSlice(t, m["messages"])
 	if len(msgs) != 4 {
 		t.Fatalf("messages = %d, want 4", len(msgs))
 	}
-	first := asMap(t, msgs[0])
-	if asString(t, first["role"]) != "system" || asString(t, first["content"]) != "be nice" {
+	first := AsMap(t, msgs[0])
+	if AsString(t, first["role"]) != "system" || AsString(t, first["content"]) != "be nice" {
 		t.Errorf("system message = %v", first)
 	}
-	second := asMap(t, msgs[1])
-	if asString(t, second["role"]) != "user" || asString(t, second["content"]) != "hello" {
+	second := AsMap(t, msgs[1])
+	if AsString(t, second["role"]) != "user" || AsString(t, second["content"]) != "hello" {
 		t.Errorf("user message = %v", second)
 	}
 }
@@ -57,17 +58,17 @@ func TestChatBuildPayloadOfficialOpenAI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := decodeMap(t, body)
+	m := DecodeMap(t, body)
 	if _, present := m["max_tokens"]; present {
 		t.Errorf("official OpenAI should use max_completion_tokens")
 	}
-	if asFloat(t, m["max_completion_tokens"]) != 99 {
+	if AsFloat(t, m["max_completion_tokens"]) != 99 {
 		t.Errorf("max_completion_tokens = %v", m["max_completion_tokens"])
 	}
 	if m["stream"] != true {
 		t.Errorf("stream = %v", m["stream"])
 	}
-	so := asMap(t, m["stream_options"])
+	so := AsMap(t, m["stream_options"])
 	if so["include_usage"] != true {
 		t.Errorf("stream_options = %v", m["stream_options"])
 	}
@@ -82,17 +83,17 @@ func TestChatBuildPayloadTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := decodeMap(t, body)
-	if asString(t, m["tool_choice"]) != "auto" {
+	m := DecodeMap(t, body)
+	if AsString(t, m["tool_choice"]) != "auto" {
 		t.Errorf("tool_choice = %v", m["tool_choice"])
 	}
-	tools := asSlice(t, m["tools"])
-	tw := asMap(t, tools[0])
-	if asString(t, tw["type"]) != "function" {
+	tools := AsSlice(t, m["tools"])
+	tw := AsMap(t, tools[0])
+	if AsString(t, tw["type"]) != "function" {
 		t.Errorf("tool type = %v", tw["type"])
 	}
-	fn := asMap(t, tw["function"])
-	if asString(t, fn["name"]) != "get_weather" {
+	fn := AsMap(t, tw["function"])
+	if AsString(t, fn["name"]) != "get_weather" {
 		t.Errorf("tool name = %v", fn["name"])
 	}
 	if _, ok := fn["parameters"]; !ok {
@@ -104,8 +105,8 @@ func TestChatBuildPayloadThinking(t *testing.T) {
 	// Standard OpenAI-compatible endpoint: reasoning_effort.
 	p := chatProviderWithBase("https://api.somewhere.com/v1")
 	body, _ := p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortHigh}), false)
-	m := decodeMap(t, body)
-	if asString(t, m["reasoning_effort"]) != "high" {
+	m := DecodeMap(t, body)
+	if AsString(t, m["reasoning_effort"]) != "high" {
 		t.Errorf("reasoning_effort = %v", m["reasoning_effort"])
 	}
 	if _, present := m["temperature"]; present {
@@ -116,20 +117,20 @@ func TestChatBuildPayloadThinking(t *testing.T) {
 	// GLM-5.3 rejects medium).
 	p = chatProviderWithBase("https://open.bigmodel.cn/api/paas/v4")
 	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortMedium}), false)
-	m = decodeMap(t, body)
-	thinking := asMap(t, m["thinking"])
-	if asString(t, thinking["type"]) != "enabled" {
+	m = DecodeMap(t, body)
+	thinking := AsMap(t, m["thinking"])
+	if AsString(t, thinking["type"]) != "enabled" {
 		t.Errorf("glm thinking = %v", m["thinking"])
 	}
-	if asString(t, m["reasoning_effort"]) != "high" {
+	if AsString(t, m["reasoning_effort"]) != "high" {
 		t.Errorf("glm reasoning_effort = %v, want high (mapped from medium)", m["reasoning_effort"])
 	}
 
 	// Explicitly disabled on GLM: no effort alongside the off switch.
 	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{}), false)
-	m = decodeMap(t, body)
-	thinking = asMap(t, m["thinking"])
-	if asString(t, thinking["type"]) != "disabled" {
+	m = DecodeMap(t, body)
+	thinking = AsMap(t, m["thinking"])
+	if AsString(t, thinking["type"]) != "disabled" {
 		t.Errorf("glm disabled thinking = %v", m["thinking"])
 	}
 	if _, present := m["reasoning_effort"]; present {
@@ -139,19 +140,19 @@ func TestChatBuildPayloadThinking(t *testing.T) {
 	// Ark: thinking object plus effort passed through unmapped.
 	p = chatProviderWithBase("https://ark.cn-beijing.volces.com/api/v3")
 	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortMedium}), false)
-	m = decodeMap(t, body)
-	thinking = asMap(t, m["thinking"])
-	if asString(t, thinking["type"]) != "enabled" {
+	m = DecodeMap(t, body)
+	thinking = AsMap(t, m["thinking"])
+	if AsString(t, thinking["type"]) != "enabled" {
 		t.Errorf("ark thinking = %v", m["thinking"])
 	}
-	if asString(t, m["reasoning_effort"]) != "medium" {
+	if AsString(t, m["reasoning_effort"]) != "medium" {
 		t.Errorf("ark reasoning_effort = %v, want medium", m["reasoning_effort"])
 	}
 
 	// Qwen: enable_thinking; BudgetTokens maps to thinking_budget.
 	p = chatProviderWithBase("https://dashscope.aliyuncs.com/compatible-mode/v1")
 	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortLow}), false)
-	m = decodeMap(t, body)
+	m = DecodeMap(t, body)
 	if m["enable_thinking"] != true {
 		t.Errorf("qwen enable_thinking = %v", m["enable_thinking"])
 	}
@@ -159,31 +160,31 @@ func TestChatBuildPayloadThinking(t *testing.T) {
 		t.Errorf("thinking_budget should be absent without BudgetTokens")
 	}
 	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{BudgetTokens: 8192}), false)
-	m = decodeMap(t, body)
+	m = DecodeMap(t, body)
 	if m["enable_thinking"] != true {
 		t.Errorf("qwen enable_thinking (budget) = %v", m["enable_thinking"])
 	}
-	if asFloat(t, m["thinking_budget"]) != 8192 {
+	if AsFloat(t, m["thinking_budget"]) != 8192 {
 		t.Errorf("qwen thinking_budget = %v", m["thinking_budget"])
 	}
 
 	// DeepSeek: thinking switch plus reasoning_effort.
 	p = chatProviderWithBase("https://api.deepseek.com")
 	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortHigh}), false)
-	m = decodeMap(t, body)
-	thinking = asMap(t, m["thinking"])
-	if asString(t, thinking["type"]) != "enabled" {
+	m = DecodeMap(t, body)
+	thinking = AsMap(t, m["thinking"])
+	if AsString(t, thinking["type"]) != "enabled" {
 		t.Errorf("deepseek thinking = %v", m["thinking"])
 	}
-	if asString(t, m["reasoning_effort"]) != "high" {
+	if AsString(t, m["reasoning_effort"]) != "high" {
 		t.Errorf("deepseek reasoning_effort = %v", m["reasoning_effort"])
 	}
 
 	// Explicitly disabled on DeepSeek (its default is thinking on).
 	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{}), false)
-	m = decodeMap(t, body)
-	thinking = asMap(t, m["thinking"])
-	if asString(t, thinking["type"]) != "disabled" {
+	m = DecodeMap(t, body)
+	thinking = AsMap(t, m["thinking"])
+	if AsString(t, thinking["type"]) != "disabled" {
 		t.Errorf("deepseek disabled thinking = %v", m["thinking"])
 	}
 	if _, present := m["reasoning_effort"]; present {
@@ -193,7 +194,7 @@ func TestChatBuildPayloadThinking(t *testing.T) {
 	// No thinking config: nothing sent.
 	p = chatProviderWithBase("https://api.somewhere.com/v1")
 	body, _ = p.buildPayload(NewRequest(User("hi")), false)
-	m = decodeMap(t, body)
+	m = DecodeMap(t, body)
 	for _, key := range []string{"reasoning_effort", "thinking", "enable_thinking"} {
 		if _, present := m[key]; present {
 			t.Errorf("%s should be absent when thinking is nil", key)
@@ -207,19 +208,19 @@ func TestChatBuildPayloadImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msgs := asSlice(t, decodeMap(t, body)["messages"])
-	content := asSlice(t, asMap(t, msgs[0])["content"])
+	msgs := AsSlice(t, DecodeMap(t, body)["messages"])
+	content := AsSlice(t, AsMap(t, msgs[0])["content"])
 	if len(content) != 2 {
 		t.Fatalf("content parts = %d, want 2", len(content))
 	}
-	if asString(t, asMap(t, content[0])["type"]) != "text" {
+	if AsString(t, AsMap(t, content[0])["type"]) != "text" {
 		t.Errorf("part 0 = %v", content[0])
 	}
-	img := asMap(t, content[1])
-	if asString(t, img["type"]) != "image_url" {
+	img := AsMap(t, content[1])
+	if AsString(t, img["type"]) != "image_url" {
 		t.Fatalf("part 1 = %v", img)
 	}
-	url := asString(t, asMap(t, img["image_url"])["url"])
+	url := AsString(t, AsMap(t, img["image_url"])["url"])
 	if !strings.HasPrefix(url, "data:image/png;base64,") {
 		t.Errorf("image url = %q", url)
 	}
@@ -238,27 +239,27 @@ func TestChatBuildPayloadToolCallHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msgs := asSlice(t, decodeMap(t, body)["messages"])
+	msgs := AsSlice(t, DecodeMap(t, body)["messages"])
 
-	assistant := asMap(t, msgs[1])
-	calls := asSlice(t, assistant["tool_calls"])
-	call := asMap(t, calls[0])
-	if asString(t, call["id"]) != "call_1" {
+	assistant := AsMap(t, msgs[1])
+	calls := AsSlice(t, assistant["tool_calls"])
+	call := AsMap(t, calls[0])
+	if AsString(t, call["id"]) != "call_1" {
 		t.Errorf("tool call id = %v", call["id"])
 	}
-	fn := asMap(t, call["function"])
-	if asString(t, fn["name"]) != "get_weather" || asString(t, fn["arguments"]) != `{"city":"Beijing"}` {
+	fn := AsMap(t, call["function"])
+	if AsString(t, fn["name"]) != "get_weather" || AsString(t, fn["arguments"]) != `{"city":"Beijing"}` {
 		t.Errorf("function = %v", fn)
 	}
-	if asString(t, assistant["reasoning_content"]) != "thoughts" {
+	if AsString(t, assistant["reasoning_content"]) != "thoughts" {
 		t.Errorf("reasoning_content = %v", assistant["reasoning_content"])
 	}
 
-	toolMsg := asMap(t, msgs[2])
-	if asString(t, toolMsg["role"]) != "tool" || asString(t, toolMsg["tool_call_id"]) != "call_1" {
+	toolMsg := AsMap(t, msgs[2])
+	if AsString(t, toolMsg["role"]) != "tool" || AsString(t, toolMsg["tool_call_id"]) != "call_1" {
 		t.Errorf("tool message = %v", toolMsg)
 	}
-	if asString(t, toolMsg["content"]) != "sunny" {
+	if AsString(t, toolMsg["content"]) != "sunny" {
 		t.Errorf("tool content = %v", toolMsg["content"])
 	}
 }
@@ -405,7 +406,7 @@ func TestChatExtraPassthrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := decodeMap(t, body)
+	m := DecodeMap(t, body)
 	if m["custom_flag"] != true {
 		t.Errorf("custom_flag = %v", m["custom_flag"])
 	}
@@ -435,7 +436,7 @@ func TestChatAgentFlow(t *testing.T) {
 	)
 
 	var requestBodies []string
-	server := newMockServer(t, []string{toolCallTurn, finalTurn}, &requestBodies)
+	server := NewMockServer(t, []string{toolCallTurn, finalTurn}, &requestBodies)
 	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 
 	var gotArgs weatherArgs

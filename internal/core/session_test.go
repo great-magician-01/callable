@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"sync"
 	"testing"
@@ -40,7 +41,7 @@ func eventConversationID(ev Event) string {
 }
 
 func TestSessionConversationID(t *testing.T) {
-	sess := chatSessionFixture(t, []string{chatJSONUsage("hi", 100), chatJSONUsage("again", 200)}, nil)
+	sess := chatSessionFixture(t, []string{ChatJSONUsage("hi", 100), ChatJSONUsage("again", 200)}, nil)
 
 	id := sess.ID()
 	if !strings.HasPrefix(id, "sess-") {
@@ -58,11 +59,11 @@ func TestSessionConversationID(t *testing.T) {
 }
 
 func TestSessionEventsCarryConversationID(t *testing.T) {
-	turn := chatSSE(
+	turn := ChatSSE(
 		`{"choices":[{"delta":{"content":"hi"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":1}}`,
 	)
-	server := newMockServer(t, []string{turn}, nil)
+	server := NewMockServer(t, []string{turn}, nil)
 	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 	sess := NewAgent(client).Session()
 
@@ -83,7 +84,7 @@ func TestSessionEventsCarryConversationID(t *testing.T) {
 }
 
 func TestAgentRunConversationID(t *testing.T) {
-	turn := chatSSE(
+	turn := ChatSSE(
 		`{"choices":[{"delta":{"content":"hi"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -117,15 +118,15 @@ func TestAgentRunConversationID(t *testing.T) {
 // conversation's ID while their inner events carry the sub-agent run's own
 // ID.
 func TestSubAgentEventConversationIDs(t *testing.T) {
-	callTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "call_translator", `{"task":"translate: 你好"}`, true),
+	callTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "call_translator", `{"task":"translate: 你好"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	subAnswer := chatSSE(
+	subAnswer := ChatSSE(
 		`{"choices":[{"delta":{"content":"hello"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
-	finalTurn := chatSSE(
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"done"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -172,8 +173,8 @@ func TestSubAgentEventConversationIDs(t *testing.T) {
 }
 
 func TestSessionSnapshotRestore(t *testing.T) {
-	responses := []string{chatJSONUsage("hi", 450)}
-	server := newMockJSONServer(t, responses, nil)
+	responses := []string{ChatJSONUsage("hi", 450)}
+	server := NewMockJSONServer(t, responses, nil)
 	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 	agent := NewAgent(client)
 
@@ -215,7 +216,7 @@ func TestSessionConcurrentAccess(t *testing.T) {
 	const asks = 4
 	responses := make([]string, 0, asks)
 	for i := 0; i < asks; i++ {
-		responses = append(responses, chatJSONUsage("hi", 100))
+		responses = append(responses, ChatJSONUsage("hi", 100))
 	}
 	sess := chatSessionFixture(t, responses, nil)
 
@@ -261,7 +262,7 @@ func TestSessionConcurrentAccess(t *testing.T) {
 func TestSessionAskSerializes(t *testing.T) {
 	var bodies []string
 	sess := chatSessionFixture(t,
-		[]string{chatJSONUsage("one", 10), chatJSONUsage("two", 20)}, &bodies)
+		[]string{ChatJSONUsage("one", 10), ChatJSONUsage("two", 20)}, &bodies)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 2; i++ {
@@ -286,7 +287,7 @@ func TestSessionAskSerializes(t *testing.T) {
 // TestSessionConcurrentRestoreAndID exercises the ID()/Restore/Ask race
 // surface; meaningful under -race (CI).
 func TestSessionConcurrentRestoreAndID(t *testing.T) {
-	sess := chatSessionFixture(t, []string{chatJSONUsage("hi", 100)}, nil)
+	sess := chatSessionFixture(t, []string{ChatJSONUsage("hi", 100)}, nil)
 	if _, err := sess.Ask(context.Background(), User("hello")); err != nil {
 		t.Fatal(err)
 	}
@@ -317,10 +318,10 @@ func TestSessionConcurrentRestoreAndID(t *testing.T) {
 // state and the session remains usable afterwards.
 func TestSessionRestoreOverwritesAndContinues(t *testing.T) {
 	responses := []string{
-		chatJSONUsage("hi", 100),
-		chatJSONUsage("restored answer", 50),
+		ChatJSONUsage("hi", 100),
+		ChatJSONUsage("restored answer", 50),
 	}
-	server := newMockJSONServer(t, responses, nil)
+	server := NewMockJSONServer(t, responses, nil)
 	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 	agent := NewAgent(client)
 

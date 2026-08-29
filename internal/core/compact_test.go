@@ -2,29 +2,15 @@ package core
 
 import (
 	"context"
-	"fmt"
+	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"testing"
 )
 
-// chatJSONUsage builds a non-streaming chat-completions response body with usage.
-func chatJSONUsage(text string, promptTokens int) string {
-	return fmt.Sprintf(`{"choices":[{"message":{"role":"assistant","content":%q},"finish_reason":"stop"}],`+
-		`"usage":{"prompt_tokens":%d,"completion_tokens":1}}`, text, promptTokens)
-}
-
-// chatSSEUsage builds a streaming chat-completions response carrying text and usage.
-func chatSSEUsage(text string, promptTokens int) string {
-	return chatSSE(
-		fmt.Sprintf(`{"choices":[{"delta":{"role":"assistant","content":%q}}]}`, text),
-		fmt.Sprintf(`{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":%d,"completion_tokens":1}}`, promptTokens),
-	)
-}
-
 // chatSessionFixture builds a session over a mock chat-completions JSON server.
 func chatSessionFixture(t *testing.T, responses []string, bodies *[]string, opts ...SessionOption) *Session {
 	t.Helper()
-	server := newMockJSONServer(t, responses, bodies)
+	server := NewMockJSONServer(t, responses, bodies)
 	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 	return NewAgent(client).Session(opts...)
 }
@@ -33,20 +19,20 @@ func chatSessionFixture(t *testing.T, responses []string, bodies *[]string, opts
 // non-streaming runs with JSON and streaming compaction calls with SSE.
 func chatSessionMixedFixture(t *testing.T, runBodies []string, compactBodies []string, bodies *[]string, opts ...SessionOption) *Session {
 	t.Helper()
-	var responses []mockBody
+	var responses []MockBody
 	for _, b := range runBodies {
-		responses = append(responses, mockBody{body: b})
+		responses = append(responses, MockBody{Body: b})
 	}
 	for _, b := range compactBodies {
-		responses = append(responses, mockBody{body: b, sse: true})
+		responses = append(responses, MockBody{Body: b, SSE: true})
 	}
-	server := newMockMixedServer(t, responses, bodies)
+	server := NewMockMixedServer(t, responses, bodies)
 	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 	return NewAgent(client).Session(opts...)
 }
 
 func TestSessionContextUsageTracking(t *testing.T) {
-	sess := chatSessionFixture(t, []string{chatJSONUsage("hi", 450)}, nil,
+	sess := chatSessionFixture(t, []string{ChatJSONUsage("hi", 450)}, nil,
 		WithContextWindow(1000))
 
 	result, err := sess.Ask(context.Background(), User("hello"))
@@ -97,7 +83,7 @@ func TestSessionOptionValidation(t *testing.T) {
 
 func TestSessionAutoCompactDisabled(t *testing.T) {
 	var bodies []string
-	sess := chatSessionFixture(t, []string{chatJSONUsage("hi", 900)}, &bodies,
+	sess := chatSessionFixture(t, []string{ChatJSONUsage("hi", 900)}, &bodies,
 		WithContextWindow(1000)) // 90% full, auto compact off
 
 	if _, err := sess.Ask(context.Background(), User("hello")); err != nil {
@@ -113,7 +99,7 @@ func TestSessionAutoCompactDisabled(t *testing.T) {
 
 func TestSessionAutoCompactBelowThreshold(t *testing.T) {
 	var bodies []string
-	sess := chatSessionFixture(t, []string{chatJSONUsage("hi", 500)}, &bodies,
+	sess := chatSessionFixture(t, []string{ChatJSONUsage("hi", 500)}, &bodies,
 		WithContextWindow(1000), WithAutoCompact(true)) // 50% < 60%
 
 	if _, err := sess.Ask(context.Background(), User("hello")); err != nil {
@@ -130,7 +116,7 @@ func TestSessionAutoCompactBelowThreshold(t *testing.T) {
 func TestSessionAutoCompactTriggers(t *testing.T) {
 	var bodies []string
 	sess := chatSessionMixedFixture(t,
-		[]string{chatJSONUsage("hi", 700)}, []string{chatSSEUsage("a summary", 50)}, &bodies,
+		[]string{ChatJSONUsage("hi", 700)}, []string{ChatSSEUsage("a summary", 50)}, &bodies,
 		WithContextWindow(1000), WithAutoCompact(true)) // 70% >= 60%
 
 	result, err := sess.Ask(context.Background(), User("hello"))
@@ -168,11 +154,11 @@ func TestSessionAutoCompactTriggers(t *testing.T) {
 
 func TestSessionAutoCompactEvent(t *testing.T) {
 	// Both the run and the compaction go through the SSE path.
-	turn := chatSSE(
+	turn := ChatSSE(
 		`{"choices":[{"delta":{"role":"assistant","content":"hi"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":700,"completion_tokens":1}}`,
 	)
-	server := newMockServer(t, []string{turn, chatSSEUsage("a summary", 50)}, nil)
+	server := NewMockServer(t, []string{turn, ChatSSEUsage("a summary", 50)}, nil)
 	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 	sess := NewAgent(client).Session(WithContextWindow(1000), WithAutoCompact(true))
 
@@ -196,7 +182,7 @@ func TestSessionAutoCompactEvent(t *testing.T) {
 func TestSessionAutoCompactFailureIsBestEffort(t *testing.T) {
 	// Only the run response is queued; the compaction call gets a 400.
 	var bodies []string
-	sess := chatSessionFixture(t, []string{chatJSONUsage("hi", 900)}, &bodies,
+	sess := chatSessionFixture(t, []string{ChatJSONUsage("hi", 900)}, &bodies,
 		WithContextWindow(1000), WithAutoCompact(true))
 
 	result, err := sess.Ask(context.Background(), User("hello"))
@@ -214,7 +200,7 @@ func TestSessionAutoCompactFailureIsBestEffort(t *testing.T) {
 func TestSessionManualCompact(t *testing.T) {
 	var bodies []string
 	sess := chatSessionMixedFixture(t,
-		[]string{chatJSONUsage("hi", 100)}, []string{chatSSEUsage("we talked about greetings", 50)}, &bodies,
+		[]string{ChatJSONUsage("hi", 100)}, []string{ChatSSEUsage("we talked about greetings", 50)}, &bodies,
 		WithContextWindow(1000))
 
 	if _, err := sess.Ask(context.Background(), User("hello")); err != nil {
@@ -251,7 +237,7 @@ func TestSessionCompactEmptyHistory(t *testing.T) {
 
 func TestSessionCompactErrorKeepsHistory(t *testing.T) {
 	// No compaction response queued: the Compact call gets a 400.
-	sess := chatSessionFixture(t, []string{chatJSONUsage("hi", 100)}, nil)
+	sess := chatSessionFixture(t, []string{ChatJSONUsage("hi", 100)}, nil)
 
 	if _, err := sess.Ask(context.Background(), User("hello")); err != nil {
 		t.Fatal(err)
@@ -265,7 +251,7 @@ func TestSessionCompactErrorKeepsHistory(t *testing.T) {
 }
 
 func TestSessionResetClearsContextUsage(t *testing.T) {
-	sess := chatSessionFixture(t, []string{chatJSONUsage("hi", 450)}, nil, WithContextWindow(1000))
+	sess := chatSessionFixture(t, []string{ChatJSONUsage("hi", 450)}, nil, WithContextWindow(1000))
 	if _, err := sess.Ask(context.Background(), User("hello")); err != nil {
 		t.Fatal(err)
 	}

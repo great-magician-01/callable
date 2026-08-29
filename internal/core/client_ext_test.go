@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	. "github.com/great-magician-01/callable/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +17,7 @@ import (
 // on the wire.
 func TestClientHooksAndDefaults(t *testing.T) {
 	var bodies []string
-	server := newMockJSONServer(t, []string{chatJSON("ok"), chatJSON("ok2")}, &bodies)
+	server := NewMockJSONServer(t, []string{ChatJSON("ok"), ChatJSON("ok2")}, &bodies)
 
 	var hookReq *Request
 	var hookResp *Response
@@ -42,14 +43,14 @@ func TestClientHooksAndDefaults(t *testing.T) {
 	if hookResp != resp || hookErr != nil {
 		t.Errorf("response hook saw resp=%p err=%v", hookResp, hookErr)
 	}
-	m := decodeMap(t, []byte(bodies[0]))
-	if got := asFloat(t, m["top_p"]); got != 0.3 {
+	m := DecodeMap(t, []byte(bodies[0]))
+	if got := AsFloat(t, m["top_p"]); got != 0.3 {
 		t.Errorf("top_p = %v", got)
 	}
-	if got := asSlice(t, m["stop"]); len(got) != 1 || got[0] != "END" {
+	if got := AsSlice(t, m["stop"]); len(got) != 1 || got[0] != "END" {
 		t.Errorf("stop = %v", got)
 	}
-	if got := asString(t, asMap(t, m["response_format"])["type"]); got != "json_object" {
+	if got := AsString(t, AsMap(t, m["response_format"])["type"]); got != "json_object" {
 		t.Errorf("response_format.type = %q", got)
 	}
 
@@ -63,8 +64,8 @@ func TestClientHooksAndDefaults(t *testing.T) {
 	if hookReq == nil || hookReq.TopP == nil || *hookReq.TopP != 0.9 {
 		t.Errorf("stream request hook saw %+v", hookReq)
 	}
-	m2 := decodeMap(t, []byte(bodies[1]))
-	if got := asFloat(t, m2["top_p"]); got != 0.9 {
+	m2 := DecodeMap(t, []byte(bodies[1]))
+	if got := AsFloat(t, m2["top_p"]); got != 0.9 {
 		t.Errorf("stream top_p = %v, want 0.9 (request overrides default)", got)
 	}
 }
@@ -72,7 +73,7 @@ func TestClientHooksAndDefaults(t *testing.T) {
 // TestClientResponseHookSeesErrors verifies the response hook fires with the
 // APIError on a failed call.
 func TestClientResponseHookSeesErrors(t *testing.T) {
-	server := newMockJSONServer(t, nil, nil) // every request gets a 400
+	server := NewMockJSONServer(t, nil, nil) // every request gets a 400
 	var hookErr error
 	client := NewClient(NewOpenAIProvider("k", server.URL, WithRetries(0)),
 		WithModel("m"),
@@ -96,34 +97,34 @@ func TestConvenienceClients(t *testing.T) {
 	ctx := context.Background()
 
 	var chatBodies []string
-	chatSrv := newMockJSONServer(t, []string{chatJSON("ok")}, &chatBodies)
+	chatSrv := NewMockJSONServer(t, []string{ChatJSON("ok")}, &chatBodies)
 	if _, err := NewOpenAIClient("k", chatSrv.URL, "gpt-x").Create(ctx, NewRequest(User("hi"))); err != nil {
 		t.Fatal(err)
 	}
-	m := decodeMap(t, []byte(chatBodies[0]))
-	if got := asString(t, m["model"]); got != "gpt-x" {
+	m := DecodeMap(t, []byte(chatBodies[0]))
+	if got := AsString(t, m["model"]); got != "gpt-x" {
 		t.Errorf("model = %q", got)
 	}
 
 	var antBodies []string
-	antSrv := newMockJSONServer(t, []string{
+	antSrv := NewMockJSONServer(t, []string{
 		`{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`,
 	}, &antBodies)
 	if _, err := NewAnthropicClient("k", antSrv.URL, "claude-x").Create(ctx, NewRequest(User("hi"))); err != nil {
 		t.Fatal(err)
 	}
-	if m := decodeMap(t, []byte(antBodies[0])); asString(t, m["model"]) != "claude-x" {
+	if m := DecodeMap(t, []byte(antBodies[0])); AsString(t, m["model"]) != "claude-x" {
 		t.Errorf("model = %q", m["model"])
 	}
 
 	var respBodies []string
-	respSrv := newMockJSONServer(t, []string{
+	respSrv := NewMockJSONServer(t, []string{
 		`{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`,
 	}, &respBodies)
 	if _, err := NewOpenAIResponsesClient("k", respSrv.URL, "gpt-x").Create(ctx, NewRequest(User("hi"))); err != nil {
 		t.Fatal(err)
 	}
-	if m := decodeMap(t, []byte(respBodies[0])); asString(t, m["model"]) != "gpt-x" {
+	if m := DecodeMap(t, []byte(respBodies[0])); AsString(t, m["model"]) != "gpt-x" {
 		t.Errorf("model = %q", m["model"])
 	}
 }
@@ -164,7 +165,7 @@ func TestWithRetryBackoff(t *testing.T) {
 // arguments clears the client default.
 func TestClientDefaultOverrides(t *testing.T) {
 	var bodies []string
-	server := newMockJSONServer(t, []string{chatJSON("a"), chatJSON("b")}, &bodies)
+	server := NewMockJSONServer(t, []string{ChatJSON("a"), ChatJSON("b")}, &bodies)
 	client := NewClient(NewOpenAIProvider("k", server.URL),
 		WithModel("m"),
 		WithStopSequences("CLIENT"),
@@ -178,11 +179,11 @@ func TestClientDefaultOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := decodeMap(t, []byte(bodies[0]))
-	if got := asString(t, asMap(t, m["response_format"])["type"]); got != "json_schema" {
+	m := DecodeMap(t, []byte(bodies[0]))
+	if got := AsString(t, AsMap(t, m["response_format"])["type"]); got != "json_schema" {
 		t.Errorf("response_format.type = %q, want json_schema (request overrides client)", got)
 	}
-	if got := asSlice(t, m["stop"]); len(got) != 1 || got[0] != "CLIENT" {
+	if got := AsSlice(t, m["stop"]); len(got) != 1 || got[0] != "CLIENT" {
 		t.Errorf("stop = %v, want client default", got)
 	}
 
@@ -191,7 +192,7 @@ func TestClientDefaultOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m2 := decodeMap(t, []byte(bodies[1]))
+	m2 := DecodeMap(t, []byte(bodies[1]))
 	if _, ok := m2["stop"]; ok {
 		t.Errorf("stop must be absent after explicit clear: %v", m2["stop"])
 	}
@@ -202,7 +203,7 @@ func TestClientDefaultOverrides(t *testing.T) {
 // request.
 func TestClientExtraMerge(t *testing.T) {
 	var bodies []string
-	server := newMockJSONServer(t, []string{chatJSON("a"), chatJSON("b")}, &bodies)
+	server := NewMockJSONServer(t, []string{ChatJSON("a"), ChatJSON("b")}, &bodies)
 	client := NewClient(NewOpenAIProvider("k", server.URL),
 		WithModel("m"),
 		WithExtra("gateway_flag", true),
@@ -213,7 +214,7 @@ func TestClientExtraMerge(t *testing.T) {
 	if _, err := client.Create(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	m := decodeMap(t, []byte(bodies[0]))
+	m := DecodeMap(t, []byte(bodies[0]))
 	if got := m["gateway_flag"]; got != true {
 		t.Errorf("gateway_flag = %v", got)
 	}
@@ -228,7 +229,7 @@ func TestClientExtraMerge(t *testing.T) {
 	if _, err := client.Create(context.Background(), NewRequest(User("hi")).WithExtra("shared", "request")); err != nil {
 		t.Fatal(err)
 	}
-	if got := decodeMap(t, []byte(bodies[1]))["shared"]; got != "request" {
+	if got := DecodeMap(t, []byte(bodies[1]))["shared"]; got != "request" {
 		t.Errorf("shared = %v, want request-level value", got)
 	}
 }

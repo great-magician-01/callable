@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	. "github.com/great-magician-01/callable/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -104,8 +105,8 @@ func TestAgentCancelStopsBeforeNextTurn(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&requests, 1)
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte(chatSSE(
-			chatToolCallChunk(0, "call_1", "get_weather", `{"city":"Oslo"}`, true),
+		_, _ = w.Write([]byte(ChatSSE(
+			ChatToolCallChunk(0, "call_1", "get_weather", `{"city":"Oslo"}`, true),
 			`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 		)))
 	}))
@@ -149,12 +150,12 @@ func TestAgentCancelStopsBeforeNextTurn(t *testing.T) {
 // canceled, not-yet-executed tools are skipped with a synthesized error
 // result (keeping every tool call paired with a result).
 func TestAgentCancelSkipsRemainingTools(t *testing.T) {
-	turn := chatSSE(
-		chatToolCallChunk(0, "call_1", "first", `{}`, true),
-		chatToolCallChunk(1, "call_2", "second", `{}`, true),
+	turn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "first", `{}`, true),
+		ChatToolCallChunk(1, "call_2", "second", `{}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	srv := newMockServer(t, []string{turn}, nil)
+	srv := NewMockServer(t, []string{turn}, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -217,11 +218,11 @@ func TestCreateCanceledContext(t *testing.T) {
 // TestSessionCancelKeepsHistory verifies an aborted run does not corrupt the
 // session history.
 func TestSessionCancelKeepsHistory(t *testing.T) {
-	turn := chatSSE(
-		chatToolCallChunk(0, "call_1", "get_weather", `{}`, true),
+	turn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "get_weather", `{}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	srv := newMockServer(t, []string{turn, turn}, nil)
+	srv := NewMockServer(t, []string{turn, turn}, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

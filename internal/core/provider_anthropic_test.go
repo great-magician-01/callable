@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"testing"
 )
@@ -24,23 +25,23 @@ func TestAntBuildPayloadBasics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := decodeMap(t, body)
+	m := DecodeMap(t, body)
 
-	if asString(t, m["model"]) != "claude-x" {
+	if AsString(t, m["model"]) != "claude-x" {
 		t.Errorf("model = %v", m["model"])
 	}
-	if asFloat(t, m["max_tokens"]) != 77 {
+	if AsFloat(t, m["max_tokens"]) != 77 {
 		t.Errorf("max_tokens = %v", m["max_tokens"])
 	}
-	if asString(t, m["system"]) != "be nice" {
+	if AsString(t, m["system"]) != "be nice" {
 		t.Errorf("system = %v", m["system"])
 	}
 	// The two user messages and the assistant turn stay separate.
-	msgs := asSlice(t, m["messages"])
+	msgs := AsSlice(t, m["messages"])
 	if len(msgs) != 3 {
 		t.Fatalf("messages = %d, want 3", len(msgs))
 	}
-	if asString(t, asMap(t, msgs[0])["role"]) != "user" {
+	if AsString(t, AsMap(t, msgs[0])["role"]) != "user" {
 		t.Errorf("first message role = %v", msgs[0])
 	}
 }
@@ -48,8 +49,8 @@ func TestAntBuildPayloadBasics(t *testing.T) {
 func TestAntBuildPayloadMaxTokensDefault(t *testing.T) {
 	p := antProvider()
 	body, _ := p.buildPayload(NewRequest(User("hi")).WithModel("claude-x"), false)
-	if asFloat(t, decodeMap(t, body)["max_tokens"]) != 4096 {
-		t.Errorf("default max_tokens = %v", decodeMap(t, body)["max_tokens"])
+	if AsFloat(t, DecodeMap(t, body)["max_tokens"]) != 4096 {
+		t.Errorf("default max_tokens = %v", DecodeMap(t, body)["max_tokens"])
 	}
 }
 
@@ -61,16 +62,16 @@ func TestAntBuildPayloadThinking(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := decodeMap(t, body)
-	thinking := asMap(t, m["thinking"])
-	if asString(t, thinking["type"]) != "enabled" {
+	m := DecodeMap(t, body)
+	thinking := AsMap(t, m["thinking"])
+	if AsString(t, thinking["type"]) != "enabled" {
 		t.Errorf("thinking = %v", m["thinking"])
 	}
-	if asFloat(t, thinking["budget_tokens"]) != 8192 {
+	if AsFloat(t, thinking["budget_tokens"]) != 8192 {
 		t.Errorf("budget_tokens = %v", thinking["budget_tokens"])
 	}
 	// max_tokens must be bumped above the budget.
-	if asFloat(t, m["max_tokens"]) != 8192+2048 {
+	if AsFloat(t, m["max_tokens"]) != 8192+2048 {
 		t.Errorf("max_tokens = %v, want budget+2048", m["max_tokens"])
 	}
 	// Temperature must be omitted in thinking mode.
@@ -81,8 +82,8 @@ func TestAntBuildPayloadThinking(t *testing.T) {
 	// Explicit budget overrides effort mapping.
 	body, _ = p.buildPayload(
 		NewRequest(User("hi")).WithModel("claude-x").WithThinking(Thinking{BudgetTokens: 2000}), false)
-	thinking = asMap(t, decodeMap(t, body)["thinking"])
-	if asFloat(t, thinking["budget_tokens"]) != 2000 {
+	thinking = AsMap(t, DecodeMap(t, body)["thinking"])
+	if AsFloat(t, thinking["budget_tokens"]) != 2000 {
 		t.Errorf("explicit budget = %v", thinking["budget_tokens"])
 	}
 }
@@ -103,46 +104,46 @@ func TestAntBuildPayloadContentBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msgs := asSlice(t, decodeMap(t, body)["messages"])
+	msgs := AsSlice(t, DecodeMap(t, body)["messages"])
 
-	userBlocks := asSlice(t, asMap(t, msgs[0])["content"])
-	if asString(t, asMap(t, userBlocks[0])["type"]) != "text" {
+	userBlocks := AsSlice(t, AsMap(t, msgs[0])["content"])
+	if AsString(t, AsMap(t, userBlocks[0])["type"]) != "text" {
 		t.Errorf("user block 0 = %v", userBlocks[0])
 	}
-	imgBlock := asMap(t, userBlocks[1])
-	if asString(t, imgBlock["type"]) != "image" {
+	imgBlock := AsMap(t, userBlocks[1])
+	if AsString(t, imgBlock["type"]) != "image" {
 		t.Fatalf("user block 1 = %v", imgBlock)
 	}
-	src := asMap(t, imgBlock["source"])
-	if asString(t, src["type"]) != "base64" || asString(t, src["media_type"]) != "image/png" {
+	src := AsMap(t, imgBlock["source"])
+	if AsString(t, src["type"]) != "base64" || AsString(t, src["media_type"]) != "image/png" {
 		t.Errorf("image source = %v", src)
 	}
-	if !strings.HasPrefix(asString(t, src["data"]), "iVBOR") {
+	if !strings.HasPrefix(AsString(t, src["data"]), "iVBOR") {
 		t.Errorf("image data = %q", src["data"])
 	}
 
-	asstBlocks := asSlice(t, asMap(t, msgs[1])["content"])
-	thinkingBlock := asMap(t, asstBlocks[0])
-	if asString(t, thinkingBlock["type"]) != "thinking" ||
-		asString(t, thinkingBlock["thinking"]) != "thoughts" ||
-		asString(t, thinkingBlock["signature"]) != "sig1" {
+	asstBlocks := AsSlice(t, AsMap(t, msgs[1])["content"])
+	thinkingBlock := AsMap(t, asstBlocks[0])
+	if AsString(t, thinkingBlock["type"]) != "thinking" ||
+		AsString(t, thinkingBlock["thinking"]) != "thoughts" ||
+		AsString(t, thinkingBlock["signature"]) != "sig1" {
 		t.Errorf("thinking block = %v", thinkingBlock)
 	}
-	toolUse := asMap(t, asstBlocks[1])
-	if asString(t, toolUse["type"]) != "tool_use" || asString(t, toolUse["id"]) != "toolu_1" {
+	toolUse := AsMap(t, asstBlocks[1])
+	if AsString(t, toolUse["type"]) != "tool_use" || AsString(t, toolUse["id"]) != "toolu_1" {
 		t.Errorf("tool_use block = %v", toolUse)
 	}
 	// input must be a JSON object, not a string.
-	input := asMap(t, toolUse["input"])
+	input := AsMap(t, toolUse["input"])
 	if input["city"] != "Oslo" {
 		t.Errorf("tool_use input = %v", toolUse["input"])
 	}
 
-	resultBlocks := asSlice(t, asMap(t, msgs[2])["content"])
-	toolResult := asMap(t, resultBlocks[0])
-	if asString(t, toolResult["type"]) != "tool_result" ||
-		asString(t, toolResult["tool_use_id"]) != "toolu_1" ||
-		asString(t, toolResult["content"]) != "sunny" {
+	resultBlocks := AsSlice(t, AsMap(t, msgs[2])["content"])
+	toolResult := AsMap(t, resultBlocks[0])
+	if AsString(t, toolResult["type"]) != "tool_result" ||
+		AsString(t, toolResult["tool_use_id"]) != "toolu_1" ||
+		AsString(t, toolResult["content"]) != "sunny" {
 		t.Errorf("tool_result block = %v", toolResult)
 	}
 }
@@ -153,12 +154,12 @@ func TestAntBuildPayloadTools(t *testing.T) {
 		return nil, nil
 	})
 	body, _ := p.buildPayload(NewRequest(User("hi")).WithModel("claude-x").WithTools(tool), false)
-	tools := asSlice(t, decodeMap(t, body)["tools"])
-	tw := asMap(t, tools[0])
-	if asString(t, tw["name"]) != "get_weather" {
+	tools := AsSlice(t, DecodeMap(t, body)["tools"])
+	tw := AsMap(t, tools[0])
+	if AsString(t, tw["name"]) != "get_weather" {
 		t.Errorf("tool = %v", tw)
 	}
-	schema := asMap(t, tw["input_schema"])
+	schema := AsMap(t, tw["input_schema"])
 	if schema["type"] != "object" {
 		t.Errorf("input_schema = %v", schema)
 	}
@@ -318,7 +319,7 @@ func TestAntAgentFlow(t *testing.T) {
 	)
 
 	var bodies []string
-	server := newMockServer(t, []string{toolTurn, finalTurn}, &bodies)
+	server := NewMockServer(t, []string{toolTurn, finalTurn}, &bodies)
 	client := NewClient(NewAnthropicProvider("k", server.URL), WithModel("claude-x"))
 
 	var executed []weatherArgs
@@ -369,11 +370,11 @@ func TestAntConsecutiveUserMessagesMerged(t *testing.T) {
 		User("a"),
 		User("b"),
 	).WithModel("claude-x"), false)
-	msgs := asSlice(t, decodeMap(t, body)["messages"])
+	msgs := AsSlice(t, DecodeMap(t, body)["messages"])
 	if len(msgs) != 1 {
 		t.Fatalf("messages = %d, want 1 (merged)", len(msgs))
 	}
-	blocks := asSlice(t, asMap(t, msgs[0])["content"])
+	blocks := AsSlice(t, AsMap(t, msgs[0])["content"])
 	if len(blocks) != 2 {
 		t.Errorf("blocks = %d, want 2", len(blocks))
 	}

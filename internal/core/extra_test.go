@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"testing"
 )
@@ -12,7 +13,7 @@ func TestAntCreatePath(t *testing.T) {
 	jsonResp := `{"content":[{"type":"thinking","thinking":"deep","signature":"sigX"},
 		{"type":"text","text":"done"}],"stop_reason":"end_turn",
 		"usage":{"input_tokens":5,"output_tokens":7}}`
-	server := newMockJSONServer(t, []string{jsonResp}, nil)
+	server := NewMockJSONServer(t, []string{jsonResp}, nil)
 	client := NewClient(NewAnthropicProvider("k", server.URL), WithModel("claude-x"))
 
 	resp, err := client.Create(context.Background(), NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortLow}))
@@ -38,7 +39,7 @@ func TestResponsesCreatePath(t *testing.T) {
 		{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"pondered"}]},
 		{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}
 	],"usage":{"input_tokens":5,"output_tokens":7,"output_tokens_details":{"reasoning_tokens":2}}}`
-	server := newMockJSONServer(t, []string{jsonResp}, nil)
+	server := NewMockJSONServer(t, []string{jsonResp}, nil)
 	client := NewClient(NewOpenAIResponsesProvider("k", server.URL), WithModel("gpt-x"))
 
 	resp, err := client.Create(context.Background(), NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortLow}))
@@ -62,11 +63,11 @@ func TestResponsesCreatePath(t *testing.T) {
 // TestAgentSkillReadHook verifies the agent-level skill read hook and tool
 // rename options.
 func TestAgentSkillReadHook(t *testing.T) {
-	readSkillTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "load_skill", `{"name":"pdf"}`, true),
+	readSkillTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "load_skill", `{"name":"pdf"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	finalTurn := chatSSE(
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"done"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -93,7 +94,7 @@ func TestAgentSkillReadHook(t *testing.T) {
 
 // TestSessionSetHistory restores a persisted conversation and continues it.
 func TestSessionSetHistory(t *testing.T) {
-	answer := chatSSE(
+	answer := ChatSSE(
 		`{"choices":[{"delta":{"content":"yes"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)

@@ -4,10 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"sync"
 	"testing"
 )
+
+// noopEvents discards streaming events; passing it keeps the agent on the
+// streaming code path (matching SSE fixtures) without observing events.
+var noopEvents = func(Event) {}
 
 // weatherTool builds a tool that records its invocation (goroutine-safe for
 // parallel tool execution tests).
@@ -29,18 +34,18 @@ func weatherTool(executed *[]weatherArgs, result func(args weatherArgs) (any, er
 // chatAgentFixture builds an agent over a mock chat-completions SSE server.
 func chatAgentFixture(t *testing.T, turns []string, bodies *[]string, opts ...AgentOption) *Agent {
 	t.Helper()
-	server := newMockServer(t, turns, bodies)
+	server := NewMockServer(t, turns, bodies)
 	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 	return NewAgent(client, opts...)
 }
 
 func TestAgentToolErrorRecovery(t *testing.T) {
 	var bodies []string
-	toolCallTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "get_weather", `{"city":"Oslo"}`, true),
+	toolCallTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "get_weather", `{"city":"Oslo"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	finalTurn := chatSSE(
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"sorry, weather service failed"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -85,11 +90,11 @@ func TestAgentToolErrorRecovery(t *testing.T) {
 }
 
 func TestAgentHookDeny(t *testing.T) {
-	toolCallTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "get_weather", `{"city":"Oslo"}`, true),
+	toolCallTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "get_weather", `{"city":"Oslo"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	finalTurn := chatSSE(
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"ok, I will not call it"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -119,11 +124,11 @@ func TestAgentHookDeny(t *testing.T) {
 }
 
 func TestAgentHookReplaceArgs(t *testing.T) {
-	toolCallTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "get_weather", `{"city":"Oslo"}`, true),
+	toolCallTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "get_weather", `{"city":"Oslo"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	finalTurn := chatSSE(
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"done"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -145,8 +150,8 @@ func TestAgentHookReplaceArgs(t *testing.T) {
 }
 
 func TestAgentMaxTurns(t *testing.T) {
-	toolCallTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "get_weather", `{"city":"Oslo"}`, true),
+	toolCallTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "get_weather", `{"city":"Oslo"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
 
@@ -176,11 +181,11 @@ func TestAgentMaxTurns(t *testing.T) {
 }
 
 func TestAgentUnknownTool(t *testing.T) {
-	toolCallTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "nonexistent", `{}`, true),
+	toolCallTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "nonexistent", `{}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	finalTurn := chatSSE(
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"that tool does not exist"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -201,11 +206,11 @@ func TestAgentUnknownTool(t *testing.T) {
 }
 
 func TestAgentSession(t *testing.T) {
-	firstAnswer := chatSSE(
+	firstAnswer := ChatSSE(
 		`{"choices":[{"delta":{"content":"hello!"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
-	secondAnswer := chatSSE(
+	secondAnswer := ChatSSE(
 		`{"choices":[{"delta":{"content":"still here"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -250,11 +255,11 @@ func TestAgentSession(t *testing.T) {
 }
 
 func TestAgentSkillFlow(t *testing.T) {
-	readSkillTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "read_skill", `{"name":"pdf"}`, true),
+	readSkillTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "read_skill", `{"name":"pdf"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	finalTurn := chatSSE(
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"loaded skill, proceeding"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -287,12 +292,12 @@ func TestAgentSkillFlow(t *testing.T) {
 }
 
 func TestAgentParallelTools(t *testing.T) {
-	twoCalls := chatSSE(
-		chatToolCallChunk(0, "call_1", "get_weather", `{"city":"Oslo"}`, true),
-		chatToolCallChunk(1, "call_2", "get_weather", `{"city":"Tokyo"}`, true),
+	twoCalls := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "get_weather", `{"city":"Oslo"}`, true),
+		ChatToolCallChunk(1, "call_2", "get_weather", `{"city":"Tokyo"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	finalTurn := chatSSE(
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"both done"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -327,7 +332,7 @@ func TestAgentCreatePath(t *testing.T) {
 	finalJSON := `{"choices":[{"message":{"role":"assistant","content":"sunny"},"finish_reason":"stop"}],
 		"usage":{"prompt_tokens":5,"completion_tokens":7}}`
 	var bodies []string
-	server := newMockJSONServer(t, []string{toolCallJSON, finalJSON}, &bodies)
+	server := NewMockJSONServer(t, []string{toolCallJSON, finalJSON}, &bodies)
 	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
 
 	var executed []weatherArgs

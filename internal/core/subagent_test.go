@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"testing"
 )
@@ -9,21 +10,6 @@ import (
 // translatorSub builds a minimal sub-agent definition for tests.
 func translatorSub(opts ...SubAgentOption) SubAgent {
 	return NewSubAgent("translator", "Translate Chinese to English", opts...)
-}
-
-// chatJSON builds a non-streaming chat-completions response body. Sub-agents
-// run their internal loop non-streaming (Create), so their mock responses use
-// plain JSON while the parent agent streams SSE.
-func chatJSON(content string) string {
-	return `{"choices":[{"message":{"role":"assistant","content":` + mustJSON(content) + `},"finish_reason":"stop"}]}`
-}
-
-// chatJSONToolCall builds a non-streaming chat-completions response body that
-// carries both text and one tool call.
-func chatJSONToolCall(content, id, name, args string) string {
-	return `{"choices":[{"message":{"role":"assistant","content":` + mustJSON(content) +
-		`,"tool_calls":[{"id":` + mustJSON(id) + `,"type":"function","function":{"name":` + mustJSON(name) +
-		`,"arguments":` + mustJSON(args) + `}}]},"finish_reason":"tool_calls"}]}`
 }
 
 func TestSubAgentIndexBlock(t *testing.T) {
@@ -108,16 +94,16 @@ func TestSubAgentLoadNameConflict(t *testing.T) {
 // the parent loads the sub-agent, then calls it; the sub-agent answers; the
 // parent summarizes. All requests hit the same mock server in order.
 func TestSubAgentDelegationLoop(t *testing.T) {
-	loadTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "load_agent", `{"name":"translator"}`, true),
+	loadTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "load_agent", `{"name":"translator"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	callTurn := chatSSE(
-		chatToolCallChunk(0, "call_2", "call_translator", `{"task":"translate: 你好"}`, true),
+	callTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_2", "call_translator", `{"task":"translate: 你好"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	subAnswer := chatJSON("hello")
-	finalTurn := chatSSE(
+	subAnswer := ChatJSON("hello")
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"The translation is: hello"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -172,11 +158,11 @@ func TestSubAgentDelegationLoop(t *testing.T) {
 // TestSubAgentCallBeforeLoad verifies a sub-agent cannot be invoked before it
 // is loaded: the model gets an unknown-tool error and recovers.
 func TestSubAgentCallBeforeLoad(t *testing.T) {
-	prematureCall := chatSSE(
-		chatToolCallChunk(0, "call_1", "call_translator", `{"task":"translate: 你好"}`, true),
+	prematureCall := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "call_translator", `{"task":"translate: 你好"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	finalTurn := chatSSE(
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"let me load it first"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -202,18 +188,18 @@ func TestSubAgentCallBeforeLoad(t *testing.T) {
 // TestSubAgentModelOverride checks that a model override only affects the
 // sub-agent's requests, not the parent's.
 func TestSubAgentModelOverride(t *testing.T) {
-	callTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "call_translator", `{"task":"translate: 你好"}`, true),
+	callTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "call_translator", `{"task":"translate: 你好"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	subAnswer := chatJSON("hello")
-	finalTurn := chatSSE(
+	subAnswer := ChatJSON("hello")
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"done"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
 
 	var bodies []string
-	server := newMockServer(t, []string{callTurn, subAnswer, finalTurn}, &bodies)
+	server := NewMockServer(t, []string{callTurn, subAnswer, finalTurn}, &bodies)
 	parent := NewClient(NewOpenAIProvider("k", server.URL), WithModel("parent-m"))
 	agent := NewAgent(parent,
 		// Preload the sub-agent to keep the request sequence short.
@@ -239,12 +225,12 @@ func TestSubAgentModelOverride(t *testing.T) {
 // TestSubAgentToolsAndSkills verifies a sub-agent runs with its own tools and
 // skills (via its own read_skill), none of which leak into parent requests.
 func TestSubAgentToolsAndSkills(t *testing.T) {
-	callTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "call_researcher", `{"task":"research Go"}`, true),
+	callTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "call_researcher", `{"task":"research Go"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	subAnswer := chatJSON("research done")
-	finalTurn := chatSSE(
+	subAnswer := ChatJSON("research done")
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"done"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -286,9 +272,9 @@ func TestSubAgentToolsAndSkills(t *testing.T) {
 // TestSubAgentCustomClient verifies WithSubAgentClient routes the sub-agent to
 // its own endpoint instead of the parent's.
 func TestSubAgentCustomClient(t *testing.T) {
-	subAnswer := chatJSON("bonjour")
+	subAnswer := ChatJSON("bonjour")
 	var subBodies []string
-	subServer := newMockServer(t, []string{subAnswer}, &subBodies)
+	subServer := NewMockServer(t, []string{subAnswer}, &subBodies)
 
 	sub := translatorSub(WithSubAgentClient(NewClient(
 		NewOpenAIProvider("k", subServer.URL), WithModel("sub-m"))))
@@ -317,14 +303,14 @@ func TestSubAgentCustomClient(t *testing.T) {
 // limit hands its last partial answer back to the parent (with a note)
 // instead of failing the delegation.
 func TestSubAgentMaxTurnsPartialAnswer(t *testing.T) {
-	callTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "call_worker", `{"task":"do work"}`, true),
+	callTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "call_worker", `{"task":"do work"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
 	// The sub-agent keeps calling its tool (with interim text) and never
 	// finishes, so it stops at the max-turns limit.
-	subBusy := chatJSONToolCall("still working on it", "sub_1", "ping", `{}`)
-	finalTurn := chatSSE(
+	subBusy := ChatJSONToolCall("still working on it", "sub_1", "ping", `{}`)
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"parent done"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -383,18 +369,18 @@ func TestLastAssistantText(t *testing.T) {
 // sub-agent streams its loop and every event reaches the parent's sink
 // wrapped in a SubAgentEvent.
 func TestSubAgentEventForwarding(t *testing.T) {
-	callTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "call_translator", `{"task":"translate: 你好"}`, true),
+	callTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "call_translator", `{"task":"translate: 你好"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
 	// With forwarding on, the sub-agent runs streaming (Stream), so its mock
 	// responses are SSE too.
-	subAnswer := chatSSE(
+	subAnswer := ChatSSE(
 		`{"choices":[{"delta":{"content":"hel"}}]}`,
 		`{"choices":[{"delta":{"content":"lo"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
-	finalTurn := chatSSE(
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"done"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -446,12 +432,12 @@ func TestSubAgentEventForwarding(t *testing.T) {
 // TestSubAgentEventsOffByDefault verifies that without WithSubAgentEvents the
 // sub-agent runs non-streaming and emits no SubAgentEvent.
 func TestSubAgentEventsOffByDefault(t *testing.T) {
-	callTurn := chatSSE(
-		chatToolCallChunk(0, "call_1", "call_translator", `{"task":"translate: 你好"}`, true),
+	callTurn := ChatSSE(
+		ChatToolCallChunk(0, "call_1", "call_translator", `{"task":"translate: 你好"}`, true),
 		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	)
-	subAnswer := chatJSON("hello")
-	finalTurn := chatSSE(
+	subAnswer := ChatJSON("hello")
+	finalTurn := ChatSSE(
 		`{"choices":[{"delta":{"content":"done"}}]}`,
 		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
 	)
