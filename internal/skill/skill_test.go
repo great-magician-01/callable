@@ -1,4 +1,4 @@
-package core
+package skill
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 )
 
 func TestSkillIndexBlock(t *testing.T) {
-	block := skillIndexBlock("read_skill", []Skill{
+	block := IndexBlock("read_skill", []Skill{
 		NewSkill("pdf", "Export PDFs", "instructions A"),
 		NewSkill("search", "Search the web", "instructions B"),
 	})
@@ -25,7 +25,7 @@ func TestSkillIndexBlock(t *testing.T) {
 
 func TestSkillTool(t *testing.T) {
 	skills := []Skill{NewSkill("pdf", "Export PDFs", "# Full PDF instructions")}
-	tool := newSkillTool(DefaultSkillToolName, skills, nil)
+	tool := NewReadTool(DefaultSkillToolName, skills, nil)
 
 	res := tool.Execute(context.Background(), `{"name":"pdf"}`)
 	if res.IsError {
@@ -47,7 +47,7 @@ func TestSkillToolHook(t *testing.T) {
 	hook := func(ctx context.Context, name, content string) (string, error) {
 		return content + " +extra", nil
 	}
-	tool := newSkillTool("load_skill", skills, hook)
+	tool := NewReadTool("load_skill", skills, hook)
 
 	def := tool.Definition()
 	if def.Name != "load_skill" {
@@ -64,7 +64,7 @@ func TestSkillToolHookError(t *testing.T) {
 	hook := func(ctx context.Context, name, content string) (string, error) {
 		return "", errors.New("backend down")
 	}
-	tool := newSkillTool(DefaultSkillToolName, skills, hook)
+	tool := NewReadTool(DefaultSkillToolName, skills, hook)
 	res := tool.Execute(context.Background(), `{"name":"pdf"}`)
 	if !res.IsError || !strings.Contains(res.Content, "backend down") {
 		t.Errorf("hook error result = %+v", res)

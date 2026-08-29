@@ -39,6 +39,7 @@ import (
 	core "github.com/great-magician-01/callable/internal/core"
 	model "github.com/great-magician-01/callable/internal/model"
 	provider "github.com/great-magician-01/callable/internal/provider"
+	skill "github.com/great-magician-01/callable/internal/skill"
 )
 
 // ── Messages and content parts ─────────────────────────────────────────────
@@ -272,17 +273,17 @@ func WithTavilyAPIKey(key string) AgentOption { return core.WithTavilyAPIKey(key
 
 type (
 	// Skill is a named instruction set the model can load on demand.
-	Skill = core.Skill
+	Skill = skill.Skill
 	// SkillReadHook can rewrite skill instructions before they reach the model.
-	SkillReadHook = core.SkillReadHook
+	SkillReadHook = skill.SkillReadHook
 )
 
 // DefaultSkillToolName is the name of the built-in skill-loading tool.
-const DefaultSkillToolName = core.DefaultSkillToolName
+const DefaultSkillToolName = skill.DefaultSkillToolName
 
 // NewSkill builds a Skill.
 func NewSkill(name, description, instructions string) Skill {
-	return core.NewSkill(name, description, instructions)
+	return skill.NewSkill(name, description, instructions)
 }
 
 // ── Sub-agents (delegation with progressive disclosure) ────────────────────

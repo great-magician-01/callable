@@ -8,6 +8,7 @@ import (
 	client "github.com/great-magician-01/callable/internal/client"
 	model "github.com/great-magician-01/callable/internal/model"
 	provider "github.com/great-magician-01/callable/internal/provider"
+	skill "github.com/great-magician-01/callable/internal/skill"
 )
 
 // The unified message model lives in internal/model and the providers in
@@ -224,3 +225,16 @@ func WithExtra(key string, value any) ClientOption { return client.WithExtra(key
 func WithRequestHook(hooks ...RequestHook) ClientOption { return client.WithRequestHook(hooks...) }
 
 func WithResponseHook(hooks ...ResponseHook) ClientOption { return client.WithResponseHook(hooks...) }
+
+// ── Skills (internal/skill) ────────────────────────────────────────────────
+
+type (
+	Skill         = skill.Skill
+	SkillReadHook = skill.SkillReadHook
+)
+
+const DefaultSkillToolName = skill.DefaultSkillToolName
+
+func NewSkill(name, description, instructions string) Skill {
+	return skill.NewSkill(name, description, instructions)
+}

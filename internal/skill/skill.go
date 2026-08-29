@@ -1,9 +1,15 @@
-package core
+// Package skill implements skills: named instruction packages exposed to the
+// model through progressive disclosure. Only the name and description go into
+// the system prompt; the full instructions are served on demand via the
+// built-in read_skill tool when the model asks for them.
+package skill
 
 import (
 	"context"
 	"fmt"
 	"strings"
+
+	model "github.com/great-magician-01/callable/internal/model"
 )
 
 // Skill is an instruction package exposed to the model through progressive
@@ -44,13 +50,13 @@ const skillToolDescription = "Load the full instructions of a skill by name. " +
 	"Call this before attempting a task that matches one of the available skills, " +
 	"then follow the loaded instructions."
 
-// newSkillTool builds the built-in skill-loading tool for an agent.
-func newSkillTool(name string, skills []Skill, hook SkillReadHook) Tool {
+// NewReadTool builds the built-in skill-loading tool for an agent.
+func NewReadTool(name string, skills []Skill, hook SkillReadHook) model.Tool {
 	byName := make(map[string]Skill, len(skills))
 	for _, s := range skills {
 		byName[s.Name] = s
 	}
-	return NewTool(name, skillToolDescription,
+	return model.NewTool(name, skillToolDescription,
 		func(ctx context.Context, args skillReadArgs) (any, error) {
 			skill, ok := byName[args.Name]
 			if !ok {
@@ -58,7 +64,7 @@ func newSkillTool(name string, skills []Skill, hook SkillReadHook) Tool {
 				for n := range byName {
 					names = append(names, n)
 				}
-				return ToolResult{
+				return model.ToolResult{
 					Content: fmt.Sprintf("skill %q not found. Available skills: %s",
 						args.Name, strings.Join(names, ", ")),
 					IsError: true,
@@ -76,9 +82,9 @@ func newSkillTool(name string, skills []Skill, hook SkillReadHook) Tool {
 		})
 }
 
-// skillIndexBlock renders the progressive-disclosure index injected into the
+// IndexBlock renders the progressive-disclosure index injected into the
 // system prompt.
-func skillIndexBlock(toolName string, skills []Skill) string {
+func IndexBlock(toolName string, skills []Skill) string {
 	var b strings.Builder
 	b.WriteString("<available_skills>\n")
 	b.WriteString("The following skills are available. When a task may benefit from a skill, ")

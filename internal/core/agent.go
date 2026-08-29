@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	skill "github.com/great-magician-01/callable/internal/skill"
 )
 
 // Agent result stop reasons.
@@ -189,7 +191,7 @@ func NewAgent(client *Client, opts ...AgentOption) *Agent {
 	a.tools = newToolSet()
 	a.tools.add(a.userTools...)
 	if len(a.skills) > 0 && !a.skillToolDisabled {
-		a.tools.add(newSkillTool(a.skillToolName, a.skills, a.skillHook))
+		a.tools.add(skill.NewReadTool(a.skillToolName, a.skills, a.skillHook))
 	}
 	a.subs = newSubAgentRegistry(client, a.tools, a.subAgents)
 	if len(a.subAgents) > 0 && !a.subAgentToolDisabled {
@@ -318,7 +320,7 @@ func (a *Agent) systemMessage() Message {
 		if b.Len() > 0 {
 			b.WriteString("\n\n")
 		}
-		b.WriteString(skillIndexBlock(a.skillToolName, a.skills))
+		b.WriteString(skill.IndexBlock(a.skillToolName, a.skills))
 	}
 	if !a.subs.empty() {
 		if b.Len() > 0 {
