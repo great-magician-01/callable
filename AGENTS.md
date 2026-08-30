@@ -14,7 +14,7 @@ Guidance for AI coding agents working on this repository. The reader is assumed 
   - Anthropic Messages (including Anthropic-compatible third-party endpoints)
 - On top of the providers sits an `Agent` that runs the full tool-calling loop automatically (model → tool execution → model → ... until a final answer), with streaming events, thinking/reasoning support, skills (progressive disclosure via a built-in `read_skill` tool), sub-agent delegation (built-in `load_agent` tool registers `call_<name>`), multi-turn `Session`, and image input.
 - **Single third-party dependency**: `github.com/invopop/jsonschema` (used to reflect tool-argument structs into JSON Schema). HTTP, retries, and SSE parsing are all hand-written on the standard library — keep it that way; do not add dependencies casually.
-- Current release: `0.6.0` (see `.release-please-manifest.json` and `CHANGELOG.md`).
+- Current release: `1.0.0` (see `.release-please-manifest.json` and `CHANGELOG.md`).
 
 ## Repository layout
 
