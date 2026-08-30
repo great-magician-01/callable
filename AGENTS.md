@@ -20,29 +20,44 @@ Guidance for AI coding agents working on this repository. The reader is assumed 
 
 ```
 callable.go               # Single public entry point: package doc + full re-export
-                          #   (type aliases + consts + thin function wrappers) of internal/core.
-internal/core/            # ALL implementation and tests live here (~7.6k lines).
-  message.go / content.go   # Unified Message{Role, Parts}; Part is a sealed interface
+                          #   (type aliases + consts + thin function wrappers) of the
+                          #   internal packages under internal/.
+internal/                 # ALL implementation and tests live here, split by concern
+                          #   (~10k lines incl. tests). Dependency DAG (no cycles):
+                          #   model <- provider <- client <- agent; agent also uses skill.
+  model/                    # Unified message model and shared data types (leaf package).
+    message.go / content.go #   Message{Role, Parts}; Part is a sealed interface
                             #   (Text / Image / Thinking / ToolCall / ToolResult).
-  request.go / response.go  # Unified Request / Response / Usage / StopReason.
-  stream.go                 # Unified streaming event types (ThinkingDelta, TextDelta, ...).
-  thinking.go               # Thinking config + Effort levels, mapped per provider.
-  format.go                 # Structured output: ResponseFormat + JSONSchemaFor reflection.
-  image.go                  # Image loading (path / URL / bytes), media-type detection, base64.
-  tool.go                   # Tool interface, NewTool[A] (generics + jsonschema reflection).
-  skill.go                  # Skill type + built-in read_skill tool + read hook.
-  subagent.go               # SubAgent definitions + built-in load_agent / call_<name> tools.
-  provider.go               # Provider interface + shared HTTP / SSE / retry infrastructure.
-  provider_oai_chat.go      # OpenAI Chat Completions adapter (+ Chinese-endpoint compat dialects).
-  provider_oai_responses.go # OpenAI Responses adapter.
-  provider_anthropic.go     # Anthropic Messages adapter.
-  endpoints.go              # Well-known base-URL constants + Compat dialect auto-detection.
-  client.go / agent.go      # Client (Create/Stream, retries, defaults) and Agent loop + Session.
-  compact.go                # Session context-window options + auto/manual history compaction.
-  id.go                     # Conversation ID generation (sess-/run- prefixes).
-  errors.go                 # APIError / MaxTurnsError.
-  websearch.go              # Web search: provider built-in detection + Kimi echo stub + Tavily fallback tool.
-  *_test.go                 # All tests (no tests exist outside this package).
+    request.go / response.go#   Unified Request / Response / Usage / StopReason.
+    stream.go               #   Unified streaming events (ThinkingDelta, TextDelta, ...) +
+                            #   EventSink. Event is a sealed interface: every event type must
+                            #   stay in this package (AgentDoneEvent is why result.go is here).
+    result.go               #   AgentResult (agent-run outcome data type).
+    thinking.go             #   Thinking config + Effort levels.
+    format.go               #   Structured output: ResponseFormat + JSONSchemaFor reflection.
+    image.go                #   Image loading (path / URL / bytes), media-type detection, base64.
+    tool.go                 #   Tool interface, NewTool[A] (generics + jsonschema reflection).
+  provider/                 # Wire-format adapters.
+    provider.go             #   Provider interface + shared HTTP / SSE / retry infrastructure.
+    provider_oai_chat.go    #   OpenAI Chat Completions adapter (+ Chinese-endpoint compat dialects).
+    provider_oai_responses.go # OpenAI Responses adapter.
+    provider_anthropic.go   #   Anthropic Messages adapter.
+    endpoints.go            #   Well-known base-URL constants + Compat dialect auto-detection.
+    thinking_map.go         #   Thinking/Effort -> per-provider wire mapping helpers.
+    errors.go               #   APIError.
+    websearch.go            #   SupportsWebSearch seam: built-in server-side search detection.
+  client/                   # Client (Create/Stream, retries, defaults) + package-level Derive.
+  skill/                    # Skill type + built-in read_skill tool (NewReadTool) + read hook.
+  agent/                    # Agent loop and everything plugged into it.
+    agent.go                #   Agent loop + Session.
+    compact.go              #   Session context-window options + auto/manual history compaction.
+    subagent.go             #   SubAgent definitions + built-in load_agent / call_<name> tools.
+    websearch.go            #   Web-search agent wiring + Kimi echo stub + Tavily fallback tool.
+    id.go                   #   Conversation ID generation (sess-/run- prefixes).
+    errors.go               #   MaxTurnsError.
+  testutil/                 # Shared test helpers (mock servers, JSON asserts, SSE fixtures).
+                            #   Must not import the other internal packages (import cycle with
+                            #   white-box tests).
 examples/                 # Runnable examples: quickstart, tools, thinking, vision, skills,
                           # subagents, compact, websearch, deepseek. Each is a main package needing real API keys.
 docs/zh/ , docs/en/       # Per-feature user docs, fully bilingual (Chinese + English).
@@ -82,8 +97,8 @@ Examples read keys from env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSE
 
 - **Language**: All code, identifiers, doc comments, and inline comments are written in **English** (user-facing docs are bilingual zh/en). Keep new comments in English.
 - **Formatting**: standard `gofmt`; CI rejects unformatted code.
-- **Public API surface**: `callable.go` in the root is the *only* public entry point. It contains no logic — only type aliases (`type X = core.X`), constant re-exports, and one-line function wrappers with doc comments. When you add or change an exported symbol in `internal/core`, you must mirror it in `callable.go`, keeping the existing section-comment organization and doc-comment style.
-- **Implementation stays internal**: everything is in package `core` under `internal/`, so external users cannot depend on unexported details. Tests use the same package (`package core`, white-box).
+- **Public API surface**: `callable.go` in the root is the *only* public entry point. It contains no logic — only type aliases (`type X = model.X` / `= provider.X` / ...), constant re-exports, and one-line function wrappers with doc comments. When you add or change an exported symbol in any `internal/` package that should be public, you must mirror it in `callable.go`, keeping the existing section-comment organization and doc-comment style.
+- **Implementation stays internal**: everything lives in the packages under `internal/` (`model`, `provider`, `client`, `skill`, `agent`), so external users cannot depend on unexported details. Tests are white-box: each test file uses the package of the code it covers.
 - **Options pattern**: configuration is via functional options (`WithModel`, `WithTools`, `WithThinking`, ...). Follow this pattern for new configurability; grouped per type (`ProviderOption`, `ClientOption`, `AgentOption`, `SubAgentOption`).
 - **Sealed interfaces**: `Part` and `Event` are closed type families handled by type switches. Extend the family rather than opening the interface.
 - **Doc comments**: every exported symbol carries a proper doc comment (golint style, starts with the symbol name). Match the density and tone of neighboring comments.
@@ -91,11 +106,11 @@ Examples read keys from env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSE
 
 ## Testing instructions
 
-- Tests live **only** in `internal/core/*_test.go`; run with `go test -race -count=1 ./...`.
+- Tests live in the `*_test.go` files next to the code they cover (each internal package has its own); run with `go test -race -count=1 ./...`.
 - Test strategy (per `docs/PLAN.md`, §14):
-  - **Golden request tests**: build requests for each provider × feature combination and compare against expected wire JSON, using the helpers in `testutil_test.go` (`decodeMap`, `asMap`, `asSlice`, `asString`, `asFloat`).
+  - **Golden request tests**: build requests for each provider × feature combination and compare against expected wire JSON, using the helpers in `internal/testutil` (`DecodeMap`, `AsMap`, `AsSlice`, `AsString`, `AsFloat`).
   - **SSE fixture tests**: canned streaming-response bodies in each provider's format, asserting the unified event sequence.
-  - **Integration tests via `httptest`**: `mock_test.go` provides `newMockServer` (serves queued SSE bodies, records request bodies) and `newMockJSONServer` — reuse these; agent-loop tests (multi-turn tool calls, max turns, approval hooks, skills, sub-agents, cancellation) are all built on them.
+  - **Integration tests via `httptest`**: `internal/testutil` provides `NewMockServer` (serves queued SSE bodies, records request bodies), `NewMockJSONServer` and `NewMockMixedServer` — reuse these; agent-loop tests (multi-turn tool calls, max turns, approval hooks, skills, sub-agents, cancellation) are all built on them. Test files that need these helpers dot-import `internal/testutil`.
   - **Unit tests**: schema generation, image encoding/type detection, message JSON round-trip.
 - **Tests must never call real LLM APIs.** No API keys exist in CI; all provider behavior is mocked via `httptest`.
 - Test names follow `TestXxx` with table-driven cases where natural (see `endpoints_test.go`). Endpoint URL constants are pinned by `TestEndpointURLs` — a typo there breaks real calls, so update the test only intentionally.

@@ -1,0 +1,414 @@
+package provider
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	. "github.com/great-magician-01/callable/internal/model"
+	. "github.com/great-magician-01/callable/internal/testutil"
+)
+
+func chatProviderWithBase(base string) *OpenAIProvider {
+	return NewOpenAIProvider("test-key", base)
+}
+
+func TestChatBuildPayloadBasics(t *testing.T) {
+	p := chatProviderWithBase("https://compat.example.com/api")
+	body, err := p.buildPayload(NewRequest(
+		System("be nice"),
+		User("hello"),
+		Assistant("hi"),
+		User("how are you"),
+	).WithModel("m1").WithMaxTokens(123).WithTemperature(0.5), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := DecodeMap(t, body)
+
+	if AsString(t, m["model"]) != "m1" {
+		t.Errorf("model = %v", m["model"])
+	}
+	if AsFloat(t, m["max_tokens"]) != 123 {
+		t.Errorf("max_tokens = %v (compat endpoints use max_tokens)", m["max_tokens"])
+	}
+	if _, present := m["max_completion_tokens"]; present {
+		t.Errorf("max_completion_tokens should not be set on compat endpoints")
+	}
+	if AsFloat(t, m["temperature"]) != 0.5 {
+		t.Errorf("temperature = %v", m["temperature"])
+	}
+
+	msgs := AsSlice(t, m["messages"])
+	if len(msgs) != 4 {
+		t.Fatalf("messages = %d, want 4", len(msgs))
+	}
+	first := AsMap(t, msgs[0])
+	if AsString(t, first["role"]) != "system" || AsString(t, first["content"]) != "be nice" {
+		t.Errorf("system message = %v", first)
+	}
+	second := AsMap(t, msgs[1])
+	if AsString(t, second["role"]) != "user" || AsString(t, second["content"]) != "hello" {
+		t.Errorf("user message = %v", second)
+	}
+}
+
+func TestChatBuildPayloadOfficialOpenAI(t *testing.T) {
+	p := chatProviderWithBase("https://api.openai.com/v1")
+	body, err := p.buildPayload(NewRequest(User("hi")).WithModel("gpt-5").WithMaxTokens(99), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := DecodeMap(t, body)
+	if _, present := m["max_tokens"]; present {
+		t.Errorf("official OpenAI should use max_completion_tokens")
+	}
+	if AsFloat(t, m["max_completion_tokens"]) != 99 {
+		t.Errorf("max_completion_tokens = %v", m["max_completion_tokens"])
+	}
+	if m["stream"] != true {
+		t.Errorf("stream = %v", m["stream"])
+	}
+	so := AsMap(t, m["stream_options"])
+	if so["include_usage"] != true {
+		t.Errorf("stream_options = %v", m["stream_options"])
+	}
+}
+
+func TestChatBuildPayloadTools(t *testing.T) {
+	p := chatProviderWithBase("https://compat.example.com")
+	tool := NewTool("get_weather", "Get weather", func(ctx context.Context, args weatherArgs) (any, error) {
+		return nil, nil
+	})
+	body, err := p.buildPayload(NewRequest(User("weather?")).WithTools(tool), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := DecodeMap(t, body)
+	if AsString(t, m["tool_choice"]) != "auto" {
+		t.Errorf("tool_choice = %v", m["tool_choice"])
+	}
+	tools := AsSlice(t, m["tools"])
+	tw := AsMap(t, tools[0])
+	if AsString(t, tw["type"]) != "function" {
+		t.Errorf("tool type = %v", tw["type"])
+	}
+	fn := AsMap(t, tw["function"])
+	if AsString(t, fn["name"]) != "get_weather" {
+		t.Errorf("tool name = %v", fn["name"])
+	}
+	if _, ok := fn["parameters"]; !ok {
+		t.Errorf("tool parameters missing: %v", fn)
+	}
+}
+
+func TestChatBuildPayloadThinking(t *testing.T) {
+	// Standard OpenAI-compatible endpoint: reasoning_effort.
+	p := chatProviderWithBase("https://api.somewhere.com/v1")
+	body, _ := p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortHigh}), false)
+	m := DecodeMap(t, body)
+	if AsString(t, m["reasoning_effort"]) != "high" {
+		t.Errorf("reasoning_effort = %v", m["reasoning_effort"])
+	}
+	if _, present := m["temperature"]; present {
+		t.Errorf("temperature must be omitted when thinking is on")
+	}
+
+	// GLM: thinking object plus mapped reasoning_effort (medium → high,
+	// GLM-5.3 rejects medium).
+	p = chatProviderWithBase("https://open.bigmodel.cn/api/paas/v4")
+	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortMedium}), false)
+	m = DecodeMap(t, body)
+	thinking := AsMap(t, m["thinking"])
+	if AsString(t, thinking["type"]) != "enabled" {
+		t.Errorf("glm thinking = %v", m["thinking"])
+	}
+	if AsString(t, m["reasoning_effort"]) != "high" {
+		t.Errorf("glm reasoning_effort = %v, want high (mapped from medium)", m["reasoning_effort"])
+	}
+
+	// Explicitly disabled on GLM: no effort alongside the off switch.
+	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{}), false)
+	m = DecodeMap(t, body)
+	thinking = AsMap(t, m["thinking"])
+	if AsString(t, thinking["type"]) != "disabled" {
+		t.Errorf("glm disabled thinking = %v", m["thinking"])
+	}
+	if _, present := m["reasoning_effort"]; present {
+		t.Errorf("reasoning_effort should not be sent when thinking is disabled")
+	}
+
+	// Ark: thinking object plus effort passed through unmapped.
+	p = chatProviderWithBase("https://ark.cn-beijing.volces.com/api/v3")
+	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortMedium}), false)
+	m = DecodeMap(t, body)
+	thinking = AsMap(t, m["thinking"])
+	if AsString(t, thinking["type"]) != "enabled" {
+		t.Errorf("ark thinking = %v", m["thinking"])
+	}
+	if AsString(t, m["reasoning_effort"]) != "medium" {
+		t.Errorf("ark reasoning_effort = %v, want medium", m["reasoning_effort"])
+	}
+
+	// Qwen: enable_thinking; BudgetTokens maps to thinking_budget.
+	p = chatProviderWithBase("https://dashscope.aliyuncs.com/compatible-mode/v1")
+	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortLow}), false)
+	m = DecodeMap(t, body)
+	if m["enable_thinking"] != true {
+		t.Errorf("qwen enable_thinking = %v", m["enable_thinking"])
+	}
+	if _, present := m["thinking_budget"]; present {
+		t.Errorf("thinking_budget should be absent without BudgetTokens")
+	}
+	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{BudgetTokens: 8192}), false)
+	m = DecodeMap(t, body)
+	if m["enable_thinking"] != true {
+		t.Errorf("qwen enable_thinking (budget) = %v", m["enable_thinking"])
+	}
+	if AsFloat(t, m["thinking_budget"]) != 8192 {
+		t.Errorf("qwen thinking_budget = %v", m["thinking_budget"])
+	}
+
+	// DeepSeek: thinking switch plus reasoning_effort.
+	p = chatProviderWithBase("https://api.deepseek.com")
+	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{Effort: EffortHigh}), false)
+	m = DecodeMap(t, body)
+	thinking = AsMap(t, m["thinking"])
+	if AsString(t, thinking["type"]) != "enabled" {
+		t.Errorf("deepseek thinking = %v", m["thinking"])
+	}
+	if AsString(t, m["reasoning_effort"]) != "high" {
+		t.Errorf("deepseek reasoning_effort = %v", m["reasoning_effort"])
+	}
+
+	// Explicitly disabled on DeepSeek (its default is thinking on).
+	body, _ = p.buildPayload(NewRequest(User("hi")).WithThinking(Thinking{}), false)
+	m = DecodeMap(t, body)
+	thinking = AsMap(t, m["thinking"])
+	if AsString(t, thinking["type"]) != "disabled" {
+		t.Errorf("deepseek disabled thinking = %v", m["thinking"])
+	}
+	if _, present := m["reasoning_effort"]; present {
+		t.Errorf("reasoning_effort should not be sent when thinking is disabled")
+	}
+
+	// No thinking config: nothing sent.
+	p = chatProviderWithBase("https://api.somewhere.com/v1")
+	body, _ = p.buildPayload(NewRequest(User("hi")), false)
+	m = DecodeMap(t, body)
+	for _, key := range []string{"reasoning_effort", "thinking", "enable_thinking"} {
+		if _, present := m[key]; present {
+			t.Errorf("%s should be absent when thinking is nil", key)
+		}
+	}
+}
+
+func TestChatBuildPayloadImages(t *testing.T) {
+	p := chatProviderWithBase("https://compat.example.com")
+	body, err := p.buildPayload(NewRequest(User("what is this?", ImageBytes(pngHeader, "image/png"))), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := AsSlice(t, DecodeMap(t, body)["messages"])
+	content := AsSlice(t, AsMap(t, msgs[0])["content"])
+	if len(content) != 2 {
+		t.Fatalf("content parts = %d, want 2", len(content))
+	}
+	if AsString(t, AsMap(t, content[0])["type"]) != "text" {
+		t.Errorf("part 0 = %v", content[0])
+	}
+	img := AsMap(t, content[1])
+	if AsString(t, img["type"]) != "image_url" {
+		t.Fatalf("part 1 = %v", img)
+	}
+	url := AsString(t, AsMap(t, img["image_url"])["url"])
+	if !strings.HasPrefix(url, "data:image/png;base64,") {
+		t.Errorf("image url = %q", url)
+	}
+}
+
+func TestChatBuildPayloadToolCallHistory(t *testing.T) {
+	p := chatProviderWithBase("https://compat.example.com")
+	req := NewRequest(
+		User("weather?"),
+		Assistant(ToolCallPart{ID: "call_1", Name: "get_weather", Arguments: `{"city":"Beijing"}`}),
+		ToolResults(ToolResultPart{ToolCallID: "call_1", Name: "get_weather", Content: "sunny"}),
+		Assistant("It is sunny"),
+	)
+	req.Messages[1].Parts = append(req.Messages[1].Parts, ThinkingPart{Text: "thoughts"})
+	body, err := p.buildPayload(req, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := AsSlice(t, DecodeMap(t, body)["messages"])
+
+	assistant := AsMap(t, msgs[1])
+	calls := AsSlice(t, assistant["tool_calls"])
+	call := AsMap(t, calls[0])
+	if AsString(t, call["id"]) != "call_1" {
+		t.Errorf("tool call id = %v", call["id"])
+	}
+	fn := AsMap(t, call["function"])
+	if AsString(t, fn["name"]) != "get_weather" || AsString(t, fn["arguments"]) != `{"city":"Beijing"}` {
+		t.Errorf("function = %v", fn)
+	}
+	if AsString(t, assistant["reasoning_content"]) != "thoughts" {
+		t.Errorf("reasoning_content = %v", assistant["reasoning_content"])
+	}
+
+	toolMsg := AsMap(t, msgs[2])
+	if AsString(t, toolMsg["role"]) != "tool" || AsString(t, toolMsg["tool_call_id"]) != "call_1" {
+		t.Errorf("tool message = %v", toolMsg)
+	}
+	if AsString(t, toolMsg["content"]) != "sunny" {
+		t.Errorf("tool content = %v", toolMsg["content"])
+	}
+}
+
+func TestChatParseResponse(t *testing.T) {
+	p := chatProviderWithBase("https://compat.example.com")
+	fixture := `{
+		"choices": [{
+			"message": {
+				"role": "assistant",
+				"content": "Let me check.",
+				"reasoning_content": "thinking hard",
+				"tool_calls": [{
+					"id": "call_9",
+					"type": "function",
+					"function": {"name": "get_weather", "arguments": "{\"city\":\"Oslo\"}"}
+				}]
+			},
+			"finish_reason": "tool_calls"
+		}],
+		"usage": {"prompt_tokens": 10, "completion_tokens": 20,
+			"prompt_tokens_details": {"cached_tokens": 3},
+			"completion_tokens_details": {"reasoning_tokens": 5}}
+	}`
+	resp, err := p.parseResponse([]byte(fixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StopReason != StopReasonToolCalls {
+		t.Errorf("stop reason = %v", resp.StopReason)
+	}
+	if resp.Text != "Let me check." {
+		t.Errorf("text = %q", resp.Text)
+	}
+	if got := resp.Message.Thinking(); got != "thinking hard" {
+		t.Errorf("thinking = %q", got)
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].ID != "call_9" {
+		t.Fatalf("tool calls = %+v", resp.ToolCalls)
+	}
+	if resp.ToolCalls[0].Arguments != `{"city":"Oslo"}` {
+		t.Errorf("arguments = %q", resp.ToolCalls[0].Arguments)
+	}
+	if resp.Usage.InputTokens != 10 || resp.Usage.OutputTokens != 20 ||
+		resp.Usage.CacheReadTokens != 3 || resp.Usage.ReasoningTokens != 5 ||
+		resp.Usage.ContextTokens != 10 {
+		t.Errorf("usage = %+v", resp.Usage)
+	}
+}
+
+func TestChatParseResponseError(t *testing.T) {
+	p := chatProviderWithBase("https://compat.example.com")
+	_, err := p.parseResponse([]byte(`{"error": {"type": "invalid_request_error", "message": "bad"}}`))
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("error type = %T", err)
+	}
+	if apiErr.Type != "invalid_request_error" || apiErr.Message != "bad" {
+		t.Errorf("api error = %+v", apiErr)
+	}
+}
+
+func TestChatStreamAccumulation(t *testing.T) {
+	chunks := []string{
+		`{"choices":[{"delta":{"role":"assistant","reasoning_content":"think "}}]}`,
+		`{"choices":[{"delta":{"reasoning_content":"more"}}]}`,
+		`{"choices":[{"delta":{"content":"Hi "}}]}`,
+		`{"choices":[{"delta":{"content":"there"}}]}`,
+		`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":""}}]}}]}`,
+		`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":"}}]}}]}`,
+		`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"Oslo\"}"}}]}}]}`,
+		`{"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_2","type":"function","function":{"name":"clock","arguments":"{}"}}]}}]}`,
+		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+		`{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":9}}`,
+	}
+
+	state := &chatStreamState{}
+	var events []Event
+	for _, c := range chunks {
+		if err := state.processChunk(c, func(ev Event) { events = append(events, ev) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resp, err := state.assemble()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resp.Text != "Hi there" {
+		t.Errorf("text = %q", resp.Text)
+	}
+	if got := resp.Message.Thinking(); got != "think more" {
+		t.Errorf("thinking = %q", got)
+	}
+	if len(resp.ToolCalls) != 2 {
+		t.Fatalf("tool calls = %+v", resp.ToolCalls)
+	}
+	if resp.ToolCalls[0].Name != "get_weather" || resp.ToolCalls[0].Arguments != `{"city":"Oslo"}` {
+		t.Errorf("tool call 0 = %+v", resp.ToolCalls[0])
+	}
+	if resp.ToolCalls[1].Name != "clock" || resp.ToolCalls[1].Arguments != "{}" {
+		t.Errorf("tool call 1 = %+v", resp.ToolCalls[1])
+	}
+	if resp.StopReason != StopReasonToolCalls {
+		t.Errorf("stop reason = %v", resp.StopReason)
+	}
+	if resp.Usage.InputTokens != 7 || resp.Usage.OutputTokens != 9 ||
+		resp.Usage.ContextTokens != 7 {
+		t.Errorf("usage = %+v", resp.Usage)
+	}
+
+	// Event stream sanity.
+	var textDeltas, thinkingDeltas, toolDeltas int
+	for _, ev := range events {
+		switch ev.(type) {
+		case TextDeltaEvent:
+			textDeltas++
+		case ThinkingDeltaEvent:
+			thinkingDeltas++
+		case ToolCallDeltaEvent:
+			toolDeltas++
+		}
+	}
+	if textDeltas != 2 || thinkingDeltas != 2 || toolDeltas != 4 {
+		t.Errorf("deltas: text=%d thinking=%d tool=%d", textDeltas, thinkingDeltas, toolDeltas)
+	}
+}
+
+func TestChatStreamErrorChunk(t *testing.T) {
+	state := &chatStreamState{}
+	err := state.processChunk(`{"error":{"type":"overloaded_error","message":"slow down"}}`, nil)
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("error = %T (%v)", err, err)
+	}
+	if apiErr.Message != "slow down" {
+		t.Errorf("message = %q", apiErr.Message)
+	}
+}
+
+func TestChatExtraPassthrough(t *testing.T) {
+	p := chatProviderWithBase("https://compat.example.com")
+	body, err := p.buildPayload(NewRequest(User("hi")).WithExtra("custom_flag", true), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := DecodeMap(t, body)
+	if m["custom_flag"] != true {
+		t.Errorf("custom_flag = %v", m["custom_flag"])
+	}
+}

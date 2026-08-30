@@ -338,7 +338,7 @@ See [`examples/`](./examples): quickstart, tools (agent loop), thinking (thinkin
 
 - **Unified message model**: internally there is only one `Message{Role, Parts}`, with Part as a closed type family (Text/Image/Thinking/ToolCall/ToolResult). Each provider handles two-way conversion; business code never sees wire formats.
 - **Faithful history round-trips**: assistant messages can carry per-provider raw data (`Message.SetProviderExtra`), e.g. sending Responses' reasoning item back verbatim; `Message` supports full JSON serialization round-trips and can be persisted.
-- **Single entry point**: the implementation lives in `internal/core`; the root package's `callable.go` is the only public entry (a full re-export) — one import gives you everything.
+- **Single entry point**: the implementation is split by concern into internal packages (`internal/model`, `internal/provider`, `internal/client`, `internal/skill`, `internal/agent`); the root package's `callable.go` is the only public entry (a full re-export) — one import gives you everything.
 
 ## License
 
