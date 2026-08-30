@@ -291,6 +291,7 @@ callable.NewOpenAIProvider(key, callable.QwenURL)                 // Qwen, diale
 - Tool execution errors → returned to the model as an `IsError` tool result (so it can retry or take another path) without breaking the loop.
 - `*callable.MaxTurnsError`: carries `Partial *AgentResult`.
 - Per-request escape hatch: `NewRequest(...).WithExtra("key", value)` passes any top-level field through.
+- Header pass-through: `NewRequest(...).WithHeader(k, v)` sends custom HTTP headers per call; for every request use the client-level `WithClientHeader` or the provider-level `WithHeader`.
 
 ## Cancellation & Timeouts (Graceful Shutdown)
 

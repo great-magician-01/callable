@@ -426,7 +426,8 @@ func NewAnthropicProvider(apiKey, baseURL string, opts ...ProviderOption) *Anthr
 // WithHTTPClient supplies a custom *http.Client.
 func WithHTTPClient(client *http.Client) ProviderOption { return provider.WithHTTPClient(client) }
 
-// WithHeader adds a header to every provider request.
+// WithHeader adds a header to every provider request (applied after
+// authentication; request-level Request.WithHeader wins on key conflicts).
 func WithHeader(key, value string) ProviderOption { return provider.WithHeader(key, value) }
 
 // WithRetries sets how many times transient failures (429, 5xx, network
@@ -509,6 +510,13 @@ func WithResponseFormat(f ResponseFormat) ClientOption { return client.WithRespo
 // body this client sends (e.g. a gateway dialect flag). Request-level
 // Request.WithExtra wins on key conflicts.
 func WithExtra(key string, value any) ClientOption { return client.WithExtra(key, value) }
+
+// WithClientHeader adds an HTTP header to every request this client sends
+// (e.g. a gateway tenant tag), including the Agent loop's internal calls.
+// Request-level Request.WithHeader wins on key conflicts, and both win over
+// the provider-level WithHeader ProviderOption. (Named WithClientHeader
+// because WithHeader is the provider-level option.)
+func WithClientHeader(key, value string) ClientOption { return client.WithHeader(key, value) }
 
 // WithRequestHook registers a hook invoked before every request is sent.
 // Multiple hooks run in registration order.

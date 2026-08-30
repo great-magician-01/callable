@@ -227,7 +227,15 @@ client := callable.NewClient(
 )
 ```
 
-网关要求的自定义 HTTP 头则用 Provider 级 `WithHeader`（见「创建 Client 与 Provider」）。
+网关要求的自定义 HTTP 头也分三级：Provider 级 `WithHeader` 与该 client 级的 `WithClientHeader` 适合「每个请求都带」的静态头（见「创建 Client 与 Provider」）；需要按调用穿透的头（比如每次调用不同的 tracing id、租户标签）用请求级 `Request.WithHeader`：
+
+```go
+resp, err := client.Create(ctx,
+    callable.NewRequest(callable.User("你好")).
+        WithHeader("X-Request-Id", requestID)) // 仅本次调用带上
+```
+
+三级头同名 key 请求级优先，且都在认证头之后应用（同名 key 会覆盖 `Authorization` / `x-api-key`），注意不要误伤认证。
 
 ## 完整示例
 

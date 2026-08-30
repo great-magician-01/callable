@@ -118,6 +118,77 @@ func TestClientRetriesDisabled(t *testing.T) {
 	}
 }
 
+// TestRequestHeadersPassThrough verifies request-level Request.Headers are
+// sent on the wire: they are applied after provider-level WithHeader (request
+// wins on conflicts) and after authentication (they can override auth).
+func TestRequestHeadersPassThrough(t *testing.T) {
+	var got []http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Header)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	p := NewOpenAIProvider("k", srv.URL,
+		WithHeader("X-Team", "blue"),
+		WithHeader("X-Shared", "provider"))
+	req := NewRequest(User("hi")).WithModel("m").
+		WithHeader("X-Request-Id", "r-1").
+		WithHeader("X-Shared", "request")
+	if _, err := p.Create(context.Background(), req); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	h := got[0]
+	if v := h.Get("X-Request-Id"); v != "r-1" {
+		t.Errorf("X-Request-Id = %q, want r-1", v)
+	}
+	if v := h.Get("X-Team"); v != "blue" {
+		t.Errorf("X-Team = %q, want provider-level blue", v)
+	}
+	if v := h.Get("X-Shared"); v != "request" {
+		t.Errorf("X-Shared = %q, want request-level value to win", v)
+	}
+	if v := h.Get("Authorization"); v != "Bearer k" {
+		t.Errorf("Authorization = %q, want Bearer k", v)
+	}
+
+	// A request-level header may deliberately override authentication.
+	if _, err := p.Create(context.Background(),
+		NewRequest(User("hi")).WithModel("m").WithHeader("Authorization", "Bearer other")); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if v := got[1].Get("Authorization"); v != "Bearer other" {
+		t.Errorf("Authorization = %q, want request-level override", v)
+	}
+}
+
+// TestStreamRequestHeaders verifies headers also pass through on streaming
+// requests, while the SSE Accept header is still enforced last.
+func TestStreamRequestHeaders(t *testing.T) {
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(srv.Close)
+
+	p := NewOpenAIProvider("k", srv.URL)
+	_, err := p.Stream(context.Background(),
+		NewRequest(User("hi")).WithModel("m").WithHeader("X-Request-Id", "r-2"),
+		func(Event) {})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if v := got.Get("X-Request-Id"); v != "r-2" {
+		t.Errorf("X-Request-Id = %q, want r-2", v)
+	}
+	if v := got.Get("Accept"); v != "text/event-stream" {
+		t.Errorf("Accept = %q, want text/event-stream", v)
+	}
+}
+
 func TestScanSSE(t *testing.T) {
 	input := "event: one\n" +
 		"data: {\"a\":1}\n" +

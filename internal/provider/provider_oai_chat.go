@@ -424,7 +424,7 @@ func (p *OpenAIProvider) Create(ctx context.Context, req *model.Request) (*model
 	if err != nil {
 		return nil, err
 	}
-	body, err := p.api.postJSON(ctx, "/chat/completions", payload)
+	body, err := p.api.postJSON(ctx, "/chat/completions", payload, req.Headers)
 	if err != nil {
 		return nil, err
 	}
@@ -526,7 +526,7 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req *model.Request, onEvent
 	if err != nil {
 		return nil, err
 	}
-	body, err := p.api.postJSONStream(ctx, "/chat/completions", payload)
+	body, err := p.api.postJSONStream(ctx, "/chat/completions", payload, req.Headers)
 	if err != nil {
 		return nil, err
 	}

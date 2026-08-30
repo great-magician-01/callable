@@ -230,7 +230,15 @@ client := callable.NewClient(
 )
 ```
 
-For custom HTTP headers a gateway requires, use the provider-level `WithHeader` (see "Creating a Client and Provider" in Getting Started).
+Custom HTTP headers a gateway requires come in three levels too: the provider-level `WithHeader` and the client-level `WithClientHeader` fit static "send with every request" headers (see "Creating a Client and Provider" in Getting Started); headers that must pass through per call (e.g. a different tracing id or tenant tag per request) use the request-level `Request.WithHeader`:
+
+```go
+resp, err := client.Create(ctx,
+    callable.NewRequest(callable.User("hi")).
+        WithHeader("X-Request-Id", requestID)) // sent with this call only
+```
+
+On key conflicts the request level wins, and all three levels are applied after authentication (a same-named key overrides `Authorization` / `x-api-key`) — be careful not to clobber credentials.
 
 ## Complete example
 

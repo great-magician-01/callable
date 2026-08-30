@@ -138,7 +138,7 @@ callable.NewOpenAIProvider(key, callable.QwenURL,
 | 选项 | 签名 | 说明 |
 |---|---|---|
 | `WithHTTPClient` | `WithHTTPClient(client *http.Client) ProviderOption` | 注入自定义 `*http.Client`（代理、TLS、超时等）。传 `nil` 则忽略。 |
-| `WithHeader` | `WithHeader(key, value string) ProviderOption` | 给每个 provider 请求附加 header。在认证头**之后**应用，因此可以用它覆盖 `Authorization` 等默认头。 |
+| `WithHeader` | `WithHeader(key, value string) ProviderOption` | 给每个 provider 请求附加 header。在认证头**之后**应用，因此可以用它覆盖 `Authorization` 等默认头；同名 key 会被请求级 `Request.WithHeader` 覆盖。 |
 | `WithRetries` | `WithRetries(n int) ProviderOption` | 瞬时失败（网络错误、429、5xx）的重试次数。默认 3；传 0 关闭；负数按 0 处理。 |
 | `WithRetryBackoff` | `WithRetryBackoff(delays ...time.Duration) ProviderOption` | 替换默认重试等待表（3s/10s/30s）：`delays[i]` 是第 i+1 次重试前的等待，超出次数复用最后一个。与 `WithRetries` 配合。 |
 | `WithCompat` | `WithCompat(c Compat) ProviderOption` | 覆盖自动嗅探的端点方言（见上节）。 |
@@ -164,6 +164,7 @@ func NewClient(provider Provider, opts ...ClientOption) *Client
 | `WithTopP` | `WithTopP(v float64) ClientOption` | 默认核采样（nucleus sampling）概率质量，见[结构化输出与采样参数](structured-output.md) |
 | `WithStopSequences` | `WithStopSequences(seq ...string) ClientOption` | 默认停止序列（OpenAI Responses 不支持，会被忽略），同上 |
 | `WithResponseFormat` | `WithResponseFormat(f ResponseFormat) ClientOption` | 默认输出格式约束（结构化输出），同上 |
+| `WithClientHeader` | `WithClientHeader(key, value string) ClientOption` | 给该 client 的每个请求附加 HTTP 头（含 Agent loop 的内部调用）；同名 key 请求级 `Request.WithHeader` 优先 |
 | `WithRequestHook` | `WithRequestHook(hooks ...RequestHook) ClientOption` | 注册请求钩子，每次请求发送前按序调用，见下文「请求/响应钩子」 |
 | `WithResponseHook` | `WithResponseHook(hooks ...ResponseHook) ClientOption` | 注册响应钩子，每次调用结束后按序调用，见下文「请求/响应钩子」 |
 
@@ -288,7 +289,7 @@ callable.NewAnthropicClient(os.Getenv("ANTHROPIC_API_KEY"), callable.AnthropicUR
 - **超时**：默认 `http.Client` 没有超时，务必用 `context.WithTimeout` / `context.WithCancel` 管理调用生命周期。取消是优雅的：上游连接立即关闭，流式中途取消会返回**非 nil 的部分结果**且错误满足 `errors.Is(err, context.Canceled)`。
 - **`Create` / `Stream` 是单次调用**：不会执行工具循环。要让模型自动跑「模型 → 工具 → 模型 → …」循环，用 [Agent 循环](agent.md)（`NewAgent` + `Run` / `RunStream`）。
 - **多轮历史要自己传**：`Create` / `Stream` 无状态，多轮对话需要把历史消息一起放进 `NewRequest`，或用 [Session](session.md) 自动维护。
-- **`WithHeader` 覆盖认证头**：自定义 header 在认证之后应用，同名 key 会覆盖 `Authorization` / `x-api-key`，通常用于网关特殊头，注意不要误伤认证。
+- **自定义请求头（穿透）分三级**：Provider 级 `WithHeader`（该 provider 的每个请求）→ Client 级 `WithClientHeader`（该 client 的每个请求，含 Agent 内部调用）→ 请求级 `Request.WithHeader`（单次调用，如按调用透传 tracing id）。三者同名 key 后者优先，且都在认证头之后应用——同名 key 会覆盖 `Authorization` / `x-api-key`，通常用于网关特殊头，注意不要误伤认证。
 
 ## 下一步
 

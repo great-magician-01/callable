@@ -108,7 +108,8 @@ func WithHTTPClient(client *http.Client) ProviderOption {
 	}
 }
 
-// WithHeader adds a header to every request (applied after authentication).
+// WithHeader adds a header to every request (applied after authentication;
+// request-level Request.Headers win on key conflicts).
 func WithHeader(key, value string) ProviderOption {
 	return func(c *providerConfig) {
 		if c.headers == nil {
@@ -155,7 +156,10 @@ type httpAPI struct {
 	decorate func(*http.Request)
 }
 
-func (a *httpAPI) newRequest(ctx context.Context, method, url string, body []byte) (*http.Request, error) {
+// newRequest builds one HTTP request. Header precedence: the library defaults
+// first, then authentication (decorate), then provider-level WithHeader, then
+// request-level headers — each layer may override the previous.
+func (a *httpAPI) newRequest(ctx context.Context, method, url string, body []byte, headers map[string]string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -168,13 +172,17 @@ func (a *httpAPI) newRequest(ctx context.Context, method, url string, body []byt
 	for k, v := range a.cfg.headers {
 		req.Header.Set(k, v)
 	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	return req, nil
 }
 
 // postJSON sends a JSON payload and returns the response status and body.
 // Non-2xx responses are returned as *APIError after exhausting retries.
-func (a *httpAPI) postJSON(ctx context.Context, endpoint string, payload []byte) ([]byte, error) {
-	resp, err := a.post(ctx, endpoint, payload, false)
+// headers carries request-level HTTP headers (Request.Headers).
+func (a *httpAPI) postJSON(ctx context.Context, endpoint string, payload []byte, headers map[string]string) ([]byte, error) {
+	resp, err := a.post(ctx, endpoint, payload, false, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -196,8 +204,8 @@ func (a *httpAPI) postJSON(ctx context.Context, endpoint string, payload []byte)
 
 // postJSONStream sends a JSON payload and, on success, returns the response
 // body for incremental SSE reading.
-func (a *httpAPI) postJSONStream(ctx context.Context, endpoint string, payload []byte) (io.ReadCloser, error) {
-	resp, err := a.post(ctx, endpoint, payload, true)
+func (a *httpAPI) postJSONStream(ctx context.Context, endpoint string, payload []byte, headers map[string]string) (io.ReadCloser, error) {
+	resp, err := a.post(ctx, endpoint, payload, true, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +217,7 @@ func (a *httpAPI) postJSONStream(ctx context.Context, endpoint string, payload [
 	return resp.Body, nil
 }
 
-func (a *httpAPI) post(ctx context.Context, endpoint string, payload []byte, stream bool) (*http.Response, error) {
+func (a *httpAPI) post(ctx context.Context, endpoint string, payload []byte, stream bool, headers map[string]string) (*http.Response, error) {
 	fullURL := a.cfg.baseURL + endpoint
 	attempts := a.cfg.maxRetries + 1
 	var lastErr error
@@ -219,7 +227,7 @@ func (a *httpAPI) post(ctx context.Context, endpoint string, payload []byte, str
 				return nil, err
 			}
 		}
-		req, err := a.newRequest(ctx, http.MethodPost, fullURL, payload)
+		req, err := a.newRequest(ctx, http.MethodPost, fullURL, payload, headers)
 		if err != nil {
 			return nil, err
 		}

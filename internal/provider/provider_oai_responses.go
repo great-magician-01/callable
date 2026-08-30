@@ -328,7 +328,7 @@ func (p *OpenAIResponsesProvider) Create(ctx context.Context, req *model.Request
 	if err != nil {
 		return nil, err
 	}
-	body, err := p.api.postJSON(ctx, "/responses", payload)
+	body, err := p.api.postJSON(ctx, "/responses", payload, req.Headers)
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +427,7 @@ func (p *OpenAIResponsesProvider) Stream(ctx context.Context, req *model.Request
 	if err != nil {
 		return nil, err
 	}
-	body, err := p.api.postJSONStream(ctx, "/responses", payload)
+	body, err := p.api.postJSONStream(ctx, "/responses", payload, req.Headers)
 	if err != nil {
 		return nil, err
 	}

@@ -126,5 +126,6 @@ Examples read keys from env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSE
 - API keys come from environment variables only; `.env` and `.env.*` are gitignored. Never commit keys, and never print or log key material.
 - The library sends user-provided message history and local image files (via `callable.Image(path)`) to the configured provider endpoint — be careful not to weaken that boundary (e.g., don't auto-attach files beyond what the user passed).
 - `WithExtra` is a request-level escape hatch that merges arbitrary fields into the request body; treat its contents as user-controlled.
+- `Request.WithHeader` (per call), `WithClientHeader` (per client) and the provider-level `WithHeader` pass user-controlled HTTP headers through to the provider; all three are applied after authentication and can override `Authorization`, so treat their contents as user-controlled too.
 - `WithToolCallHook` / `Approve` / `Deny` / `ReplaceArgs` is the approval gate for tool execution — changes to the agent loop must not bypass this hook or silently auto-approve.
 - Keep the dependency footprint minimal (currently just `invopop/jsonschema`); the networking layer intentionally uses only the standard library.
