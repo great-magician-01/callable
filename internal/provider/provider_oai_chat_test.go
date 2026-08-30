@@ -412,3 +412,91 @@ func TestChatExtraPassthrough(t *testing.T) {
 		t.Errorf("custom_flag = %v", m["custom_flag"])
 	}
 }
+
+func TestChatParseResponsePreservesUnknownFields(t *testing.T) {
+	p := chatProviderWithBase("https://compat.example.com")
+	fixture := `{
+		"id": "chatcmpl-1",
+		"created": 1700000000,
+		"x_gateway_trace": "trace-abc",
+		"choices": [{
+			"message": {
+				"role": "assistant",
+				"content": "hi",
+				"annotations": [{"type": "url_citation", "url": "https://x"}]
+			},
+			"finish_reason": "stop"
+		}],
+		"usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}
+	}`
+	resp, err := p.parseResponse([]byte(fixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Top-level fields the unified model does not map survive verbatim.
+	if string(resp.Extra["x_gateway_trace"]) != `"trace-abc"` {
+		t.Errorf("x_gateway_trace = %s", resp.Extra["x_gateway_trace"])
+	}
+	if string(resp.Extra["id"]) != `"chatcmpl-1"` {
+		t.Errorf("id = %s", resp.Extra["id"])
+	}
+	for _, known := range []string{"choices", "usage"} {
+		if _, ok := resp.Extra[known]; ok {
+			t.Errorf("known field %q must not land in Extra", known)
+		}
+	}
+	// Message-level fields (annotations, ...) are preserved on the message.
+	if string(resp.Message.Extra["annotations"]) != `[{"type": "url_citation", "url": "https://x"}]` {
+		t.Errorf("annotations = %s", resp.Message.Extra["annotations"])
+	}
+	if _, ok := resp.Message.Extra["content"]; ok {
+		t.Error("known message field content must not land in Extra")
+	}
+	// Usage fields beyond the schema (total_tokens) are preserved too.
+	if string(resp.Usage.Extra["total_tokens"]) != `12` {
+		t.Errorf("total_tokens = %s", resp.Usage.Extra["total_tokens"])
+	}
+	if _, ok := resp.Usage.Extra["prompt_tokens"]; ok {
+		t.Error("known usage field prompt_tokens must not land in Extra")
+	}
+}
+
+func TestChatStreamPreservesUnknownFields(t *testing.T) {
+	state := &chatStreamState{}
+	chunks := []string{
+		`{"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[{"delta":{"content":"hi"}}]}`,
+		`{"id":"chatcmpl-1","x_trace":"t2","choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`,
+	}
+	for _, c := range chunks {
+		if err := state.processChunk(c, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resp, err := state.assemble()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Unmodeled chunk fields merge across the stream (later chunks win).
+	if string(resp.Extra["id"]) != `"chatcmpl-1"` {
+		t.Errorf("id = %s", resp.Extra["id"])
+	}
+	if string(resp.Extra["x_trace"]) != `"t2"` {
+		t.Errorf("x_trace = %s", resp.Extra["x_trace"])
+	}
+	if string(resp.Usage.Extra["total_tokens"]) != `4` {
+		t.Errorf("total_tokens = %s", resp.Usage.Extra["total_tokens"])
+	}
+}
+
+func TestChatParseResponseMissingMessage(t *testing.T) {
+	// Some gateways return choices without a message object; that must stay
+	// tolerated (empty text) rather than failing the decode.
+	p := chatProviderWithBase("https://compat.example.com")
+	resp, err := p.parseResponse([]byte(`{"choices":[{"finish_reason":"stop"}],"usage":{"prompt_tokens":1}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Text != "" || len(resp.Message.Parts) != 0 {
+		t.Errorf("resp = %+v", resp)
+	}
+}

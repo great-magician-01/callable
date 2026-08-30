@@ -26,6 +26,12 @@ type Message struct {
 	Role  Role
 	Parts []Part
 
+	// Extra preserves fields of the message object that the unified model
+	// does not map — gateway extensions or provider fields added after this
+	// library version — keyed by field name in their original JSON form. It
+	// is informational only and is never sent back to a provider.
+	Extra map[string]json.RawMessage
+
 	// providerExtra holds raw provider payloads that cannot be represented in
 	// the unified model but must be replayed verbatim on the next turn (e.g.
 	// OpenAI Responses output items such as reasoning). Keyed by provider name.
@@ -143,10 +149,12 @@ func (m Message) MarshalJSON() ([]byte, error) {
 	out := struct {
 		Role           Role                       `json:"role"`
 		Parts          []Part                     `json:"parts"`
+		Extra          map[string]json.RawMessage `json:"extra,omitempty"`
 		ProviderExtras map[string]json.RawMessage `json:"provider_extra,omitempty"`
 	}{
 		Role:           m.Role,
 		Parts:          m.Parts,
+		Extra:          m.Extra,
 		ProviderExtras: m.providerExtra,
 	}
 	if out.Parts == nil {
@@ -161,6 +169,7 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	var in struct {
 		Role           Role                       `json:"role"`
 		Parts          []json.RawMessage          `json:"parts"`
+		Extra          map[string]json.RawMessage `json:"extra"`
 		ProviderExtras map[string]json.RawMessage `json:"provider_extra"`
 	}
 	if err := json.Unmarshal(data, &in); err != nil {
@@ -178,6 +187,7 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 		}
 		m.Parts = append(m.Parts, p)
 	}
+	m.Extra = in.Extra
 	m.providerExtra = in.ProviderExtras
 	return nil
 }

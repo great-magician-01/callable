@@ -380,6 +380,24 @@ type oaiUsage struct {
 	// DeepSeek-style cache accounting.
 	PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens"`
 	PromptCacheMissTokens int `json:"prompt_cache_miss_tokens"`
+	// Extra preserves usage fields the unified model does not map (e.g.
+	// total_tokens or gateway-specific accounting), in original JSON form.
+	Extra map[string]json.RawMessage
+}
+
+// UnmarshalJSON captures fields beyond the known usage schema into Extra.
+func (u *oaiUsage) UnmarshalJSON(data []byte) error {
+	type alias oaiUsage
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*u = oaiUsage(a)
+	u.Extra = extraFields(data,
+		"prompt_tokens", "completion_tokens",
+		"prompt_tokens_details", "completion_tokens_details",
+		"prompt_cache_hit_tokens", "prompt_cache_miss_tokens")
+	return nil
 }
 
 func (u *oaiUsage) toUsage() model.Usage {
@@ -392,6 +410,7 @@ func (u *oaiUsage) toUsage() model.Usage {
 		// PromptTokens already includes cached tokens, so it is the full
 		// context footprint.
 		ContextTokens: u.PromptTokens,
+		Extra:         u.Extra,
 	}
 	if u.PromptTokensDetails != nil {
 		usage.CacheReadTokens = u.PromptTokensDetails.CachedTokens
@@ -403,16 +422,21 @@ func (u *oaiUsage) toUsage() model.Usage {
 	return usage
 }
 
+// oaiChatMessageBody is the message object inside a response choice. The raw
+// JSON is kept alongside so unmodeled fields (gateway extensions, new API
+// fields) can be preserved on Message.Extra.
+type oaiChatMessageBody struct {
+	Role             string            `json:"role"`
+	Content          string            `json:"content"`
+	ReasoningContent string            `json:"reasoning_content"`
+	Reasoning        string            `json:"reasoning"` // some compatible endpoints
+	ToolCalls        []oaiToolCallWire `json:"tool_calls"`
+}
+
 type oaiChatResponseEnvelope struct {
 	Choices []struct {
-		Message struct {
-			Role             string            `json:"role"`
-			Content          string            `json:"content"`
-			ReasoningContent string            `json:"reasoning_content"`
-			Reasoning        string            `json:"reasoning"` // some compatible endpoints
-			ToolCalls        []oaiToolCallWire `json:"tool_calls"`
-		} `json:"message"`
-		FinishReason string `json:"finish_reason"`
+		Message      json.RawMessage `json:"message"`
+		FinishReason string          `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *oaiUsage     `json:"usage"`
 	Error *oaiErrorBody `json:"error"`
@@ -456,15 +480,29 @@ func (p *OpenAIProvider) parseResponse(body []byte) (*model.Response, error) {
 		}
 	}
 	choice := env.Choices[0]
+	var msg oaiChatMessageBody
+	if len(choice.Message) > 0 { // some gateways omit the message object
+		if err := json.Unmarshal(choice.Message, &msg); err != nil {
+			return nil, &APIError{
+				Provider: p.Name(),
+				Message:  fmt.Sprintf("decode response message: %v", err),
+				Body:     string(body),
+			}
+		}
+	}
 	assistant := model.Message{Role: model.RoleAssistant}
-	if thinking := firstNonEmpty(choice.Message.ReasoningContent, choice.Message.Reasoning); thinking != "" {
+	// Preserve message fields the unified model does not map (annotations,
+	// refusal, gateway extensions, ...) in their original form.
+	assistant.Extra = extraFields(choice.Message,
+		"role", "content", "reasoning_content", "reasoning", "tool_calls")
+	if thinking := firstNonEmpty(msg.ReasoningContent, msg.Reasoning); thinking != "" {
 		assistant.Parts = append(assistant.Parts, model.ThinkingPart{Text: thinking})
 	}
-	if choice.Message.Content != "" {
-		assistant.Parts = append(assistant.Parts, model.TextPart{Text: choice.Message.Content})
+	if msg.Content != "" {
+		assistant.Parts = append(assistant.Parts, model.TextPart{Text: msg.Content})
 	}
-	resp := &model.Response{Text: choice.Message.Content}
-	for _, tc := range choice.Message.ToolCalls {
+	resp := &model.Response{Text: msg.Content}
+	for _, tc := range msg.ToolCalls {
 		if tc.Function.Name == "" && tc.ID == "" {
 			continue
 		}
@@ -483,6 +521,9 @@ func (p *OpenAIProvider) parseResponse(body []byte) (*model.Response, error) {
 	resp.Message = assistant // assign after all parts are appended
 	resp.StopReason = mapChatFinishReason(choice.FinishReason, len(resp.ToolCalls))
 	resp.Usage = env.Usage.toUsage()
+	// Preserve top-level response fields the unified model does not map
+	// (id/created/model, gateway extensions, new API fields, ...).
+	resp.Extra = extraFields(body, "choices", "usage", "error")
 	return resp, nil
 }
 
@@ -517,6 +558,7 @@ type chatStreamState struct {
 	toolCalls []oaiToolCallWire
 	finish    string
 	usage     *oaiUsage
+	extra     map[string]json.RawMessage // unmodeled top-level chunk fields
 }
 
 // Stream performs a streaming request. Tool-call arguments arrive as
@@ -641,6 +683,8 @@ func (s *chatStreamState) processChunk(data string, onEvent model.EventSink) err
 		u := *chunk.Usage
 		s.usage = &u
 	}
+	// Preserve unmodeled top-level chunk fields (later chunks win per key).
+	s.extra = mergeExtra(s.extra, extraFields([]byte(data), "choices", "usage", "error"))
 	return nil
 }
 
@@ -672,6 +716,7 @@ func (s *chatStreamState) assemble() (*model.Response, error) {
 	resp.Message = assistant // assign after all parts are appended
 	resp.StopReason = mapChatFinishReason(s.finish, len(resp.ToolCalls))
 	resp.Usage = s.usage.toUsage()
+	resp.Extra = s.extra
 	return resp, nil
 }
 

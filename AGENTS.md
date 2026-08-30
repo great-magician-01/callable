@@ -27,7 +27,9 @@ internal/                 # ALL implementation and tests live here, split by con
                           #   model <- provider <- client <- agent; agent also uses skill.
   model/                    # Unified message model and shared data types (leaf package).
     message.go / content.go #   Message{Role, Parts}; Part is a sealed interface
-                            #   (Text / Image / Thinking / ToolCall / ToolResult).
+                            #   (Text / Image / Thinking / ToolCall / ToolResult / Raw).
+                            #   RawPart preserves unknown provider blocks verbatim; unmapped
+                            #   response/message/usage fields land in Extra maps (raw JSON).
     request.go / response.go#   Unified Request / Response / Usage / StopReason.
     stream.go               #   Unified streaming events (ThinkingDelta, TextDelta, ...) +
                             #   EventSink. Event is a sealed interface: every event type must

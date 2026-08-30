@@ -6,9 +6,9 @@ import (
 )
 
 // Part is one piece of content inside a Message. The concrete types are
-// TextPart, ImagePart, ThinkingPart, ToolCallPart and ToolResultPart. Parts
-// serialize to JSON with a discriminating "type" field, so whole
-// conversations can be persisted and restored.
+// TextPart, ImagePart, ThinkingPart, ToolCallPart, ToolResultPart and
+// RawPart. Parts serialize to JSON with a discriminating "type" field, so
+// whole conversations can be persisted and restored.
 type Part interface {
 	partType() string
 }
@@ -131,6 +131,34 @@ func (p ToolResultPart) MarshalJSON() ([]byte, error) {
 	}{"tool_result", alias(p)})
 }
 
+// RawPart preserves a provider content block the unified model does not
+// understand — a block type introduced after this library version, or a
+// gateway/relay extension — in its original wire format. Providers whose
+// wire format has content blocks (Anthropic Messages, OpenAI Responses)
+// replay RawPart verbatim when the message is sent back, so unknown blocks
+// survive multi-turn conversations; other providers ignore it.
+type RawPart struct {
+	// Provider identifies the wire format Raw belongs to (a Provider.Name()
+	// value, e.g. "anthropic").
+	Provider string `json:"provider,omitempty"`
+	// BlockType is the block's own type as it appeared on the wire (e.g.
+	// "server_tool_use").
+	BlockType string `json:"block_type"`
+	// Raw is the complete original JSON object of the block.
+	Raw json.RawMessage `json:"raw"`
+}
+
+func (RawPart) partType() string { return "raw" }
+
+// MarshalJSON adds the type discriminator (see TextPart.MarshalJSON).
+func (p RawPart) MarshalJSON() ([]byte, error) {
+	type alias RawPart
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		alias
+	}{"raw", alias(p)})
+}
+
 // UnmarshalPart decodes a JSON part object back into the concrete Part type.
 func UnmarshalPart(data []byte) (Part, error) {
 	var env struct {
@@ -157,6 +185,9 @@ func UnmarshalPart(data []byte) (Part, error) {
 		return p, unwrap(&p)
 	case "tool_result":
 		var p ToolResultPart
+		return p, unwrap(&p)
+	case "raw":
+		var p RawPart
 		return p, unwrap(&p)
 	default:
 		return nil, fmt.Errorf("callable: unknown message part type %q", env.Type)

@@ -265,6 +265,13 @@ func (p *AnthropicProvider) convertMessages(messages []model.Message) (string, [
 					Content:   content,
 					IsError:   v.IsError,
 				})
+			case model.RawPart:
+				// Blocks the unified model does not map (server_tool_use,
+				// redacted_thinking, ...) round-trip in their original wire
+				// format.
+				if v.Provider == p.Name() {
+					blocks = append(blocks, json.RawMessage(v.Raw))
+				}
 			case model.ImagePart:
 				if role != "user" {
 					continue // images are user-only input
@@ -303,6 +310,23 @@ type antUsageBody struct {
 	OutputTokens             int `json:"output_tokens"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	// Extra preserves usage fields the unified model does not map (e.g.
+	// server_tool_use accounting), in original JSON form.
+	Extra map[string]json.RawMessage
+}
+
+// UnmarshalJSON captures fields beyond the known usage schema into Extra.
+func (u *antUsageBody) UnmarshalJSON(data []byte) error {
+	type alias antUsageBody
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*u = antUsageBody(a)
+	u.Extra = extraFields(data,
+		"input_tokens", "output_tokens",
+		"cache_creation_input_tokens", "cache_read_input_tokens")
+	return nil
 }
 
 func (u antUsageBody) toUsage() model.Usage {
@@ -314,6 +338,7 @@ func (u antUsageBody) toUsage() model.Usage {
 		// Anthropic reports non-cached input only; the full context footprint
 		// includes cache reads and creations.
 		ContextTokens: u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens,
+		Extra:         u.Extra,
 	}
 }
 
@@ -326,13 +351,46 @@ type antContentBlock struct {
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
 	Input     json.RawMessage `json:"input"`
+	// Raw holds the block's complete original JSON when Type is one the
+	// unified model does not map; it is what RawPart preserves.
+	Raw json.RawMessage `json:"-"`
+}
+
+// knownAntBlockType reports whether the unified model maps this content
+// block type. Anything else is preserved verbatim as a RawPart.
+func knownAntBlockType(t string) bool {
+	return t == "text" || t == "thinking" || t == "tool_use"
 }
 
 type antResponseEnvelope struct {
-	Content    []antContentBlock `json:"content"`
+	Content    []json.RawMessage `json:"content"`
 	StopReason string            `json:"stop_reason"`
 	Usage      antUsageBody      `json:"usage"`
 	Error      *antErrorBody     `json:"error"`
+}
+
+// parseAntBlocks decodes raw content blocks. Block types the unified model
+// does not map keep their complete original JSON in Raw.
+func parseAntBlocks(raws []json.RawMessage) ([]antContentBlock, error) {
+	blocks := make([]antContentBlock, 0, len(raws))
+	for _, raw := range raws {
+		var head struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(raw, &head); err != nil {
+			return nil, err
+		}
+		if !knownAntBlockType(head.Type) {
+			blocks = append(blocks, antContentBlock{Type: head.Type, Raw: raw})
+			continue
+		}
+		var b antContentBlock
+		if err := json.Unmarshal(raw, &b); err != nil {
+			return nil, err
+		}
+		blocks = append(blocks, b)
+	}
+	return blocks, nil
 }
 
 // Create performs a non-streaming request.
@@ -365,7 +423,16 @@ func (p *AnthropicProvider) parseResponse(body []byte) (*model.Response, error) 
 			Body:     string(body),
 		}
 	}
-	return assembleAntMessage(env.Content, mapAntStopReason(env.StopReason), env.Usage.toUsage()), nil
+	blocks, err := parseAntBlocks(env.Content)
+	if err != nil {
+		return nil, &APIError{
+			Provider: p.Name(),
+			Message:  fmt.Sprintf("decode content blocks: %v", err),
+			Body:     string(body),
+		}
+	}
+	extra := extraFields(body, "content", "stop_reason", "usage", "error")
+	return assembleAntMessage(blocks, mapAntStopReason(env.StopReason), env.Usage.toUsage(), extra), nil
 }
 
 func mapAntStopReason(reason string) model.StopReason {
@@ -381,10 +448,11 @@ func mapAntStopReason(reason string) model.StopReason {
 	}
 }
 
-// assembleAntMessage builds the unified Response from content blocks.
-func assembleAntMessage(blocks []antContentBlock, stop model.StopReason, usage model.Usage) *model.Response {
+// assembleAntMessage builds the unified Response from content blocks. Block
+// types the unified model does not map are preserved verbatim as RawParts.
+func assembleAntMessage(blocks []antContentBlock, stop model.StopReason, usage model.Usage, extra map[string]json.RawMessage) *model.Response {
 	assistant := model.Message{Role: model.RoleAssistant}
-	resp := &model.Response{Usage: usage, StopReason: stop}
+	resp := &model.Response{Usage: usage, StopReason: stop, Extra: extra}
 	for _, b := range blocks {
 		switch b.Type {
 		case "thinking":
@@ -410,6 +478,24 @@ func assembleAntMessage(blocks []antContentBlock, stop model.StopReason, usage m
 				Name:      b.Name,
 				Arguments: args,
 			})
+		default:
+			if b.Type == "" {
+				// Placeholder block from a gapped stream index; nothing was
+				// ever received for it.
+				continue
+			}
+			// Unknown block (server_tool_use, redacted_thinking, gateway or
+			// future API blocks): keep the original JSON so nothing is lost
+			// and the block can round-trip on the next request.
+			raw := b.Raw
+			if len(raw) == 0 {
+				raw = json.RawMessage(mustJSON(map[string]any{"type": b.Type}))
+			}
+			assistant.Parts = append(assistant.Parts, model.RawPart{
+				Provider:  "anthropic",
+				BlockType: b.Type,
+				Raw:       raw,
+			})
 		}
 	}
 	resp.Message = assistant
@@ -427,6 +513,9 @@ type antBlockAccum struct {
 	ID        string
 	Name      string
 	inputJSON strings.Builder
+	// raw is the original content_block_start payload, kept for block types
+	// the unified model does not map.
+	raw json.RawMessage
 }
 
 type antStreamState struct {
@@ -434,6 +523,7 @@ type antStreamState struct {
 	blocks     []*antBlockAccum
 	stopReason string
 	usage      antUsageBody
+	extra      map[string]json.RawMessage // unmodeled message fields from message_start
 }
 
 // Stream performs a streaming request, reassembling content_block events.
@@ -497,22 +587,33 @@ func (s *antStreamState) assemble() *model.Response {
 			Name:      b.Name,
 			Input:     json.RawMessage(input),
 		}
+		if !knownAntBlockType(b.Type) && b.Type != "" {
+			// Unknown block: start from the original block JSON and fold any
+			// streamed input_json deltas back into it. Increments of delta
+			// types we do not understand cannot be reconstructed.
+			raw := b.raw
+			if len(raw) == 0 {
+				raw = json.RawMessage(mustJSON(map[string]any{"type": b.Type}))
+			}
+			if b.inputJSON.Len() > 0 {
+				raw = setRawField(raw, "input", json.RawMessage(input))
+			}
+			blocks[i].Raw = raw
+		}
 	}
-	return assembleAntMessage(blocks, mapAntStopReason(s.stopReason), s.usage.toUsage())
+	return assembleAntMessage(blocks, mapAntStopReason(s.stopReason), s.usage.toUsage(), s.extra)
 }
 
 func (s *antStreamState) processEvent(ev sseMessage, onEvent model.EventSink) error {
 	var env struct {
-		Type    string `json:"type"`
-		Message struct {
-			Usage antUsageBody `json:"usage"`
-		} `json:"message"`
-		Index        int              `json:"index"`
-		ContentBlock *antContentBlock `json:"content_block"`
-		Delta        json.RawMessage  `json:"delta"`
-		DeltaUsage   *antUsageBody    `json:"usage"` // message_delta
-		StopReason   string           `json:"stop_reason"`
-		Error        *antErrorBody    `json:"error"`
+		Type         string          `json:"type"`
+		Message      json.RawMessage `json:"message"`
+		Index        int             `json:"index"`
+		ContentBlock json.RawMessage `json:"content_block"`
+		Delta        json.RawMessage `json:"delta"`
+		DeltaUsage   *antUsageBody   `json:"usage"` // message_delta
+		StopReason   string          `json:"stop_reason"`
+		Error        *antErrorBody   `json:"error"`
 	}
 	if err := json.Unmarshal([]byte(ev.data), &env); err != nil {
 		return fmt.Errorf("decode event: %w", err)
@@ -526,17 +627,33 @@ func (s *antStreamState) processEvent(ev sseMessage, onEvent model.EventSink) er
 	case "message_start":
 		if !s.started {
 			s.started = true
-			s.usage = env.Message.Usage
+			var msg struct {
+				Usage antUsageBody `json:"usage"`
+			}
+			if err := json.Unmarshal(env.Message, &msg); err != nil {
+				return fmt.Errorf("decode message_start: %w", err)
+			}
+			s.usage = msg.Usage
+			// The message object carries response metadata (id, model, ...);
+			// keep whatever the unified model does not map.
+			s.extra = extraFields(env.Message, "content", "stop_reason", "usage")
 			if onEvent != nil {
 				onEvent(model.MessageStartEvent{})
 			}
 		}
 	case "content_block_start":
 		block := &antBlockAccum{}
-		if env.ContentBlock != nil {
-			block.Type = env.ContentBlock.Type
-			block.ID = env.ContentBlock.ID
-			block.Name = env.ContentBlock.Name
+		if len(env.ContentBlock) > 0 {
+			var cb antContentBlock
+			if err := json.Unmarshal(env.ContentBlock, &cb); err != nil {
+				return fmt.Errorf("decode content_block_start: %w", err)
+			}
+			block.Type = cb.Type
+			block.ID = cb.ID
+			block.Name = cb.Name
+			if !knownAntBlockType(cb.Type) {
+				block.raw = env.ContentBlock
+			}
 		}
 		for len(s.blocks) <= env.Index {
 			s.blocks = append(s.blocks, &antBlockAccum{})
@@ -596,6 +713,7 @@ func (s *antStreamState) processEvent(ev sseMessage, onEvent model.EventSink) er
 			if env.DeltaUsage.InputTokens > 0 {
 				s.usage.InputTokens = env.DeltaUsage.InputTokens
 			}
+			s.usage.Extra = mergeExtra(s.usage.Extra, env.DeltaUsage.Extra)
 		}
 	case "message_stop":
 		return errStopScan

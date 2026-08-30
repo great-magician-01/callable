@@ -21,6 +21,7 @@ callable 内部只有一种消息模型：`Message{Role, Parts}`。无论你用 
 type Message struct {
     Role  Role
     Parts []Part
+    Extra map[string]json.RawMessage // 响应消息对象上未识别的字段（见"未识别数据的保留"一节）
     // 另有不可导出的 per-provider 附加数据（见"历史回传保真"一节）
 }
 ```
@@ -38,7 +39,7 @@ func (m Message) ToolResultsOf() []ToolResultPart // 按序返回所有 ToolResu
 
 ## Part 封闭类型族
 
-`Part` 是一个封闭（sealed）接口——包含不可导出的方法，**无法在外部实现自定义 Part 类型**。具体类型只有五种，每种 JSON 序列化时都带一个 `"type"` 判别字段。
+`Part` 是一个封闭（sealed）接口——包含不可导出的方法，**无法在外部实现自定义 Part 类型**。具体类型只有六种，每种 JSON 序列化时都带一个 `"type"` 判别字段。
 
 ### TextPart
 
@@ -113,6 +114,22 @@ type ToolResultPart struct {
 - 每个 `ToolCallPart` 在历史中必须有配对的 `ToolResultPart`（同一个 message 或紧随的 `RoleTool` 消息），否则部分 API（尤其 Anthropic）会直接拒绝请求。agent loop 会保证配对完整，包括取消时为未执行的调用合成 `IsError` 结果。
 - `IsError=true` 不会中断 agent loop——错误作为结果回传给模型，由模型决定重试或换路。Responses 格式下错误结果会以 `"Error: "` 前缀拼进输出。
 
+### RawPart
+
+统一模型无法识别的 provider 内容块，按**原始 wire JSON** 完整保留。典型来源：Anthropic 的服务端工具块（`server_tool_use`、`web_search_tool_result`）、`redacted_thinking`、网关/中转站注入的自定义块、以及厂商未来新增的块类型（Responses 的未知 output item 同理）。
+
+```go
+type RawPart struct {
+    Provider  string          `json:"provider,omitempty"` // 所属 wire 格式（Provider.Name()，如 "anthropic"）
+    BlockType string          `json:"block_type"`         // 块在线上原本的 type（如 "server_tool_use"）
+    Raw       json.RawMessage `json:"raw"`                // 块的完整原始 JSON
+}
+```
+
+- 由 provider 解析响应时自动填充，无需手工构造。
+- **回传**：消息发回同一家 provider 时（Anthropic / OpenAI Responses）,RawPart 按 `Raw` 原文回放，未知块因此在多轮对话中不丢失；其他 provider 忽略它。
+- JSON 形态：`{"type":"raw","provider":"anthropic","block_type":"server_tool_use","raw":{...}}`，随消息历史正常持久化。
+
 ## 消息构造器
 
 ```go
@@ -178,6 +195,24 @@ func (m Message) ProviderExtra(provider string) json.RawMessage
 - `providerExtra` 按 `Provider.Name()` 索引，只在发回**同一个 provider** 时生效；把历史切换给另一家 provider 时附加数据被忽略（`ThinkingPart.Text` 等统一字段仍然按目标格式尽力转换）。
 - Responses 的 reasoning item **无法从 ThinkingPart 重建**——它依赖 providerExtra 里的原文。如果你手工构造 assistant 历史消息喂给 Responses，思考连续性会丢失（文本/工具调用不受影响）。
 - 高级用法（跨进程搬运历史、审计）可以直接读写 `SetProviderExtra` / `ProviderExtra`；`provider` 参数取 `Provider.Name()` 的值，如 `"openai-responses"`。
+
+## 未识别数据的保留（Extra 与 RawPart）
+
+部分网关/中转站会在响应里夹带自定义字段，厂商也会随版本更新新增字段或内容块。库解析响应时遵循"不丢数据"原则：**凡是统一模型没有映射的字段和块，一律按原始 JSON 保留**，分别落在四个位置：
+
+| 位置 | 保留的内容 |
+|---|---|
+| `Response.Extra map[string]json.RawMessage` | 响应顶层未映射字段（如 `id`、`created`、`model`、网关 trace、未来新增字段） |
+| `Message.Extra map[string]json.RawMessage` | 助手消息对象上未映射的字段（如 Chat Completions 的 `annotations`、`refusal`）；仅作信息展示，不会回传 |
+| `Usage.Extra map[string]json.RawMessage` | usage 里未映射的计费字段（如 `total_tokens`、`server_tool_use`）；`Usage.Add` 累加时按 key 后者覆盖 |
+| `RawPart`（见上一节） | 未识别的内容块 / output item，整块原文保留 |
+
+行为细节：
+
+- 保留的是**原始格式的 JSON 片段**（`json.RawMessage`），包括字段内的未知子结构。
+- 流式与一次性响应行为一致：Chat Completions 流会把各 chunk 的未知顶层字段合并（后者覆盖）；Anthropic 流对未知块保留 `content_block_start` 的原文，并把 `input_json_delta` 增量合并回 `input` 字段。
+- `Extra` 永远不影响请求构造——要影响请求请用请求级 `WithExtra` 逃生舱（见 [错误处理](errors.md)）。
+- 观测每一次调用的完整 `Response`（含 `Extra`）可挂 `WithResponseHook`。
 
 ## JSON 序列化与持久化
 
@@ -289,4 +324,4 @@ func main() {
 - **tool_call 必须配对 tool_result**：见 ToolResultPart 一节；取消/超时场景 agent loop 会自动合成配对结果，手工构造历史时需自行保证。
 - `Part` 是封闭接口，无法扩展新的 part 类型；`User`/`Assistant` 收到未知参数类型会 panic。
 - `ImagePart` 的本地文件在发送时才读取——历史序列化保存的是路径引用（`path`），换机器恢复时路径可能失效；需要跨机器搬运请改用 `ImageBytes`（字节会随 JSON 一起序列化）。
-- 消息模型不包含 provider 特有概念（如 cache_control、服务端工具）；这类需求请用请求级 `WithExtra` 逃生舱，见 [错误处理](errors.md)。
+- 消息模型不包含 provider 特有概念（如 cache_control、服务端工具）；响应侧出现的这类数据由 `RawPart` / `Extra` 原样保留（见"未识别数据的保留"），请求侧的这类需求请用请求级 `WithExtra` 逃生舱，见 [错误处理](errors.md)。
