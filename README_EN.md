@@ -32,6 +32,7 @@ A unified Go LLM calling library: one API that supports **OpenAI (Chat Completio
 - **Structured output**: `JSONMode` / `JSONSchema` / `JSONSchemaFor[T]` (reflected from a struct) constrain JSON output and map to each provider's native control field; `resp.DecodeJSON(&v)` decodes straight into a Go struct.
 - **Sampling parameters**: `WithTopP` / `WithStopSequences` at request level or as Client defaults, mapped per provider (OpenAI Responses has no stop); temperature/top_p are omitted automatically in thinking mode.
 - **Request/response hooks**: `WithRequestHook` / `WithResponseHook` observe every model call (including those inside the agent loop) for logging, tracing, and cost accounting.
+- **Model listing**: `client.ListModels(ctx)` wraps GET /models (OpenAI-compatible and Anthropic endpoints; Anthropic pagination is followed automatically) and returns a unified `ModelInfo` (ID / DisplayName / OwnedBy / Created).
 - **Streaming**: a unified `ThinkingDelta / TextDelta / ToolCallDelta / ToolResult / Turn*` event stream with full visibility into the agent loop.
 - **Thinking mode**: a unified `Effort` (low/medium/high) mapped to each provider's native fields; automatically adapts to non-standard thinking fields of Chinese endpoints such as GLM/Zhipu, Volcano Ark, Qwen, and DeepSeek (auto-sniffed from the BaseURL).
 - **Progressive skill disclosure**: only a name/description index is injected into the system prompt; the model loads the full text on demand via the built-in `read_skill` tool; a read hook can rewrite the content.

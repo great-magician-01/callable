@@ -205,6 +205,24 @@ client := callable.NewAnthropicClient(apiKey, callable.AnthropicURL, "claude-son
 - Both options accept multiple hooks, run in registration order; hooks must not mutate the request or response.
 - Every internal model call of an Agent passes through the hooks as well — an N-turn loop triggers them N times.
 
+### Listing available models (GET /models)
+
+`Client.ListModels` wraps the provider's model-listing endpoint and returns a unified `ModelInfo`:
+
+```go
+models, err := client.ListModels(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+for _, m := range models {
+    fmt.Println(m.ID, m.DisplayName, m.OwnedBy, m.Created)
+}
+```
+
+- OpenAI-compatible endpoints serve `GET {baseURL}/models`; Anthropic serves `GET {baseURL}/v1/models`, and pagination is followed automatically.
+- `DisplayName` is only returned by Anthropic, `OwnedBy` only by OpenAI-compatible endpoints; `Created` is parsed into a `time.Time` when the endpoint provides it.
+- All three built-in providers implement the `ModelLister` interface; `ListModels` returns an error for custom providers that do not. This is not a model call, so request/response hooks do not fire.
+
 ## Minimal call examples
 
 ### Create (non-streaming)

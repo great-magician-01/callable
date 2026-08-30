@@ -31,6 +31,7 @@
 - **结构化输出**：`JSONMode` / `JSONSchema` / `JSONSchemaFor[T]`（从 struct 反射）统一约束 JSON 输出，自动映射三家原生控制字段；`resp.DecodeJSON(&v)` 直接解码到 Go struct
 - **采样参数**：`WithTopP` / `WithStopSequences` 支持请求级与 Client 默认值，按 provider 映射（OpenAI Responses 无 stop）；思考模式下自动省略 temperature/top_p
 - **请求/响应钩子**：`WithRequestHook` / `WithResponseHook` 观测每次模型调用（含 agent loop 内部），用于日志、trace 与成本统计
+- **模型列表**：`client.ListModels(ctx)` 封装 GET /models（OpenAI 兼容与 Anthropic 端点，Anthropic 分页自动取全），返回统一的 `ModelInfo`（ID / DisplayName / OwnedBy / Created）
 - **流式**：统一的 `ThinkingDelta / TextDelta / ToolCallDelta / ToolResult / Turn*` 事件流，agent loop 全程可见
 - **思考模式**：统一的 `Effort`（low/medium/high）映射到各家原生字段；自动适配 GLM/智谱、火山方舟、Qwen、DeepSeek 等国产端点的非标思考字段（按 BaseURL 自动嗅探）
 - **Skill 渐进式披露**：system prompt 只注入 name/description 索引，模型按需通过内置 `read_skill` 工具加载全文；读取钩子可改写内容

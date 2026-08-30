@@ -47,6 +47,7 @@ internal/                 # ALL implementation and tests live here, split by con
     endpoints.go            #   Well-known base-URL constants + Compat dialect auto-detection.
     thinking_map.go         #   Thinking/Effort -> per-provider wire mapping helpers.
     errors.go               #   APIError.
+    models.go               #   ModelInfo + ModelLister: GET /models listing for all three providers.
     websearch.go            #   SupportsWebSearch seam: built-in server-side search detection.
   client/                   # Client (Create/Stream, retries, defaults) + package-level Derive.
   skill/                    # Skill type + built-in read_skill tool (NewReadTool) + read hook.

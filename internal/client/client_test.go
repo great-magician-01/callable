@@ -83,3 +83,41 @@ func TestClientContextCancelNoRetry(t *testing.T) {
 		t.Errorf("calls = %d, retries should stop when context expires", atomic.LoadInt32(&calls))
 	}
 }
+
+func TestClientListModels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/models" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"m1","created":1700000000,"owned_by":"acme"}]}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := NewClient(provider.NewOpenAIProvider("k", srv.URL+"/v1"), WithModel("m1"))
+	models, err := client.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if len(models) != 1 || models[0].ID != "m1" || models[0].OwnedBy != "acme" {
+		t.Errorf("models = %+v", models)
+	}
+}
+
+// noListProvider implements provider.Provider but not provider.ModelLister.
+type noListProvider struct{}
+
+func (noListProvider) Name() string { return "stub" }
+func (noListProvider) Create(context.Context, *Request) (*Response, error) {
+	return nil, nil
+}
+func (noListProvider) Stream(context.Context, *Request, EventSink) (*Response, error) {
+	return nil, nil
+}
+
+func TestClientListModelsUnsupported(t *testing.T) {
+	client := NewClient(noListProvider{})
+	if _, err := client.ListModels(context.Background()); err == nil {
+		t.Fatal("expected error for provider without ModelLister")
+	}
+}
