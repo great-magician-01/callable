@@ -1,23 +1,27 @@
-package core
+package agent
 
-import "sync"
+import (
+	"sync"
+
+	model "github.com/great-magician-01/callable/internal/model"
+)
 
 // toolSet is an ordered, name-keyed tool registry used by the Agent. It is
 // safe for concurrent use: sub-agent loading registers tools at runtime while
 // other sessions of the same agent may be listing tools.
 type toolSet struct {
 	mu     sync.RWMutex
-	order  []Tool
-	byName map[string]Tool
+	order  []model.Tool
+	byName map[string]model.Tool
 }
 
 func newToolSet() *toolSet {
-	return &toolSet{byName: map[string]Tool{}}
+	return &toolSet{byName: map[string]model.Tool{}}
 }
 
 // add registers tools; a tool whose name is already taken is skipped, so
 // user-defined tools win over built-ins.
-func (s *toolSet) add(tools ...Tool) {
+func (s *toolSet) add(tools ...model.Tool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, t := range tools {
@@ -33,13 +37,13 @@ func (s *toolSet) add(tools ...Tool) {
 	}
 }
 
-func (s *toolSet) list() []Tool {
+func (s *toolSet) list() []model.Tool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return append([]Tool{}, s.order...)
+	return append([]model.Tool{}, s.order...)
 }
 
-func (s *toolSet) get(name string) (Tool, bool) {
+func (s *toolSet) get(name string) (model.Tool, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	t, ok := s.byName[name]

@@ -26,8 +26,8 @@
 //	result, err := agent.Run(ctx, callable.User("Hello!"))
 //
 // This file is the single public entry point of the module; the
-// implementation lives in the internal sub-packages (model, provider, core)
-// and is re-exported here.
+// implementation lives in the internal sub-packages (model, provider, client,
+// skill, agent) and is re-exported here.
 package callable
 
 import (
@@ -35,8 +35,8 @@ import (
 	"net/http"
 	"time"
 
+	agent "github.com/great-magician-01/callable/internal/agent"
 	client "github.com/great-magician-01/callable/internal/client"
-	core "github.com/great-magician-01/callable/internal/core"
 	model "github.com/great-magician-01/callable/internal/model"
 	provider "github.com/great-magician-01/callable/internal/provider"
 	skill "github.com/great-magician-01/callable/internal/skill"
@@ -216,7 +216,7 @@ type (
 	APIError = provider.APIError
 	// MaxTurnsError is returned when an agent run exceeds its turn limit; its
 	// Partial field carries the partial result.
-	MaxTurnsError = core.MaxTurnsError
+	MaxTurnsError = agent.MaxTurnsError
 )
 
 // ── Tools ──────────────────────────────────────────────────────────────────
@@ -252,7 +252,7 @@ func ErrorResult(err error) ToolResult { return model.ErrorResult(err) }
 
 // DefaultWebSearchToolName is the name of the Tavily-backed fallback
 // web-search tool.
-const DefaultWebSearchToolName = core.DefaultWebSearchToolName
+const DefaultWebSearchToolName = agent.DefaultWebSearchToolName
 
 // WithWebSearch explicitly enables or disables the web-search tool.
 //
@@ -262,12 +262,12 @@ const DefaultWebSearchToolName = core.DefaultWebSearchToolName
 // via WithTavilyAPIKey, and disabled otherwise. A provider's built-in search
 // is always preferred over the Tavily fallback. Enabling explicitly with no
 // built-in support and no Tavily key exposes no tool.
-func WithWebSearch(enabled bool) AgentOption { return core.WithWebSearch(enabled) }
+func WithWebSearch(enabled bool) AgentOption { return agent.WithWebSearch(enabled) }
 
 // WithTavilyAPIKey configures a Tavily API key used for the fallback
 // web-search tool (https://tavily.com). It is only used when the provider
 // endpoint has no built-in web search.
-func WithTavilyAPIKey(key string) AgentOption { return core.WithTavilyAPIKey(key) }
+func WithTavilyAPIKey(key string) AgentOption { return agent.WithTavilyAPIKey(key) }
 
 // ── Skills (progressive disclosure) ────────────────────────────────────────
 
@@ -292,42 +292,42 @@ type (
 	// SubAgent is a named agent definition the parent agent can delegate
 	// subtasks to. It is not exposed as a tool until the model loads it via
 	// the built-in load_agent tool.
-	SubAgent = core.SubAgent
+	SubAgent = agent.SubAgent
 	// SubAgentOption configures a SubAgent.
-	SubAgentOption = core.SubAgentOption
+	SubAgentOption = agent.SubAgentOption
 )
 
 // DefaultSubAgentLoadToolName is the name of the built-in sub-agent-loading
 // tool.
-const DefaultSubAgentLoadToolName = core.DefaultSubAgentLoadToolName
+const DefaultSubAgentLoadToolName = agent.DefaultSubAgentLoadToolName
 
 // NewSubAgent builds a SubAgent definition; register it with WithSubAgents.
 func NewSubAgent(name, description string, opts ...SubAgentOption) SubAgent {
-	return core.NewSubAgent(name, description, opts...)
+	return agent.NewSubAgent(name, description, opts...)
 }
 
 // WithSubAgentClient gives the sub-agent its own client (e.g. a different
 // provider) instead of inheriting the parent agent's client.
-func WithSubAgentClient(client *Client) SubAgentOption { return core.WithSubAgentClient(client) }
+func WithSubAgentClient(client *Client) SubAgentOption { return agent.WithSubAgentClient(client) }
 
 // WithSubAgentModel overrides the sub-agent's model while reusing the parent
 // agent's client. Ignored when WithSubAgentClient supplies a custom client.
-func WithSubAgentModel(model string) SubAgentOption { return core.WithSubAgentModel(model) }
+func WithSubAgentModel(model string) SubAgentOption { return agent.WithSubAgentModel(model) }
 
 // WithSubAgentPrompt sets the sub-agent's system prompt.
-func WithSubAgentPrompt(prompt string) SubAgentOption { return core.WithSubAgentPrompt(prompt) }
+func WithSubAgentPrompt(prompt string) SubAgentOption { return agent.WithSubAgentPrompt(prompt) }
 
 // WithSubAgentTools registers tools available inside the sub-agent loop.
-func WithSubAgentTools(tools ...Tool) SubAgentOption { return core.WithSubAgentTools(tools...) }
+func WithSubAgentTools(tools ...Tool) SubAgentOption { return agent.WithSubAgentTools(tools...) }
 
 // WithSubAgentSkills registers skills available inside the sub-agent loop.
-func WithSubAgentSkills(skills ...Skill) SubAgentOption { return core.WithSubAgentSkills(skills...) }
+func WithSubAgentSkills(skills ...Skill) SubAgentOption { return agent.WithSubAgentSkills(skills...) }
 
 // WithSubAgentThinking configures thinking/reasoning for the sub-agent.
-func WithSubAgentThinking(t Thinking) SubAgentOption { return core.WithSubAgentThinking(t) }
+func WithSubAgentThinking(t Thinking) SubAgentOption { return agent.WithSubAgentThinking(t) }
 
 // WithSubAgentMaxTurns caps the number of model calls per sub-agent run.
-func WithSubAgentMaxTurns(n int) SubAgentOption { return core.WithSubAgentMaxTurns(n) }
+func WithSubAgentMaxTurns(n int) SubAgentOption { return agent.WithSubAgentMaxTurns(n) }
 
 // ── Providers ──────────────────────────────────────────────────────────────
 
@@ -522,117 +522,117 @@ func WithResponseHook(hooks ...ResponseHook) ClientOption { return client.WithRe
 
 type (
 	// Agent runs the full tool-calling loop automatically.
-	Agent = core.Agent
+	Agent = agent.Agent
 	// AgentOption configures an Agent.
-	AgentOption = core.AgentOption
+	AgentOption = agent.AgentOption
 	// AgentResult is the outcome of an agent run.
-	AgentResult = core.AgentResult
+	AgentResult = model.AgentResult
 	// ToolDecision is the verdict of a ToolCallHook.
-	ToolDecision = core.ToolDecision
+	ToolDecision = agent.ToolDecision
 	// ToolCallHook can approve, deny or rewrite a tool call before execution.
-	ToolCallHook = core.ToolCallHook
+	ToolCallHook = agent.ToolCallHook
 	// Session keeps conversation history across multiple agent runs.
-	Session = core.Session
+	Session = agent.Session
 )
 
 // Agent result stop reasons.
 const (
 	// AgentCompleted means the model produced a final answer.
-	AgentCompleted = core.AgentCompleted
+	AgentCompleted = agent.AgentCompleted
 	// AgentMaxTurns means the loop hit the turn limit without a final answer.
-	AgentMaxTurns = core.AgentMaxTurns
+	AgentMaxTurns = agent.AgentMaxTurns
 )
 
 // NewAgent builds an Agent around a Client.
 func NewAgent(client *Client, opts ...AgentOption) *Agent {
-	return core.NewAgent(client, opts...)
+	return agent.NewAgent(client, opts...)
 }
 
 // WithSystemPrompt sets the agent's system prompt.
-func WithSystemPrompt(prompt string) AgentOption { return core.WithSystemPrompt(prompt) }
+func WithSystemPrompt(prompt string) AgentOption { return agent.WithSystemPrompt(prompt) }
 
 // WithTools registers tools the agent may call.
-func WithTools(tools ...Tool) AgentOption { return core.WithTools(tools...) }
+func WithTools(tools ...Tool) AgentOption { return agent.WithTools(tools...) }
 
 // WithSkills registers skills for progressive disclosure.
-func WithSkills(skills ...Skill) AgentOption { return core.WithSkills(skills...) }
+func WithSkills(skills ...Skill) AgentOption { return agent.WithSkills(skills...) }
 
 // WithSubAgents registers sub-agent definitions. They are not exposed as
 // tools by default: the system prompt only lists name/description, and the
 // model must call the built-in load_agent tool to register a call_<name>
 // tool before delegating to one.
-func WithSubAgents(subs ...SubAgent) AgentOption { return core.WithSubAgents(subs...) }
+func WithSubAgents(subs ...SubAgent) AgentOption { return agent.WithSubAgents(subs...) }
 
 // WithThinking configures thinking/reasoning for the agent.
-func WithThinking(t Thinking) AgentOption { return core.WithThinking(t) }
+func WithThinking(t Thinking) AgentOption { return agent.WithThinking(t) }
 
 // WithMaxTurns bounds the number of model<->tool loop turns.
-func WithMaxTurns(n int) AgentOption { return core.WithMaxTurns(n) }
+func WithMaxTurns(n int) AgentOption { return agent.WithMaxTurns(n) }
 
 // WithToolCallHook installs a hook invoked before every tool execution.
-func WithToolCallHook(h ToolCallHook) AgentOption { return core.WithToolCallHook(h) }
+func WithToolCallHook(h ToolCallHook) AgentOption { return agent.WithToolCallHook(h) }
 
 // WithParallelToolExecution allows concurrent tool execution within a turn.
 func WithParallelToolExecution(enabled bool) AgentOption {
-	return core.WithParallelToolExecution(enabled)
+	return agent.WithParallelToolExecution(enabled)
 }
 
 // WithSkillReadHook installs a hook that can rewrite skill instructions.
-func WithSkillReadHook(h SkillReadHook) AgentOption { return core.WithSkillReadHook(h) }
+func WithSkillReadHook(h SkillReadHook) AgentOption { return agent.WithSkillReadHook(h) }
 
 // WithSkillToolName renames the built-in skill-loading tool.
-func WithSkillToolName(name string) AgentOption { return core.WithSkillToolName(name) }
+func WithSkillToolName(name string) AgentOption { return agent.WithSkillToolName(name) }
 
 // WithSkillToolDisabled removes the built-in skill-loading tool.
-func WithSkillToolDisabled() AgentOption { return core.WithSkillToolDisabled() }
+func WithSkillToolDisabled() AgentOption { return agent.WithSkillToolDisabled() }
 
 // WithSubAgentToolName renames the built-in sub-agent-loading tool.
-func WithSubAgentToolName(name string) AgentOption { return core.WithSubAgentToolName(name) }
+func WithSubAgentToolName(name string) AgentOption { return agent.WithSubAgentToolName(name) }
 
 // WithSubAgentToolDisabled removes the built-in sub-agent-loading tool.
-func WithSubAgentToolDisabled() AgentOption { return core.WithSubAgentToolDisabled() }
+func WithSubAgentToolDisabled() AgentOption { return agent.WithSubAgentToolDisabled() }
 
 // WithSubAgentEvents enables forwarding of sub-agent loop events: every event
 // inside a delegated sub-agent's run is wrapped in a SubAgentEvent (with the
 // sub-agent's name) and sent to the parent agent's event sink. Default off.
-func WithSubAgentEvents(enabled bool) AgentOption { return core.WithSubAgentEvents(enabled) }
+func WithSubAgentEvents(enabled bool) AgentOption { return agent.WithSubAgentEvents(enabled) }
 
 // Approve lets the tool call execute as requested.
-func Approve() ToolDecision { return core.Approve() }
+func Approve() ToolDecision { return agent.Approve() }
 
 // Deny blocks the tool call; the reason is fed back to the model.
-func Deny(reason string) ToolDecision { return core.Deny(reason) }
+func Deny(reason string) ToolDecision { return agent.Deny(reason) }
 
 // ReplaceArgs approves the tool call with rewritten JSON arguments.
-func ReplaceArgs(argsJSON string) ToolDecision { return core.ReplaceArgs(argsJSON) }
+func ReplaceArgs(argsJSON string) ToolDecision { return agent.ReplaceArgs(argsJSON) }
 
 // ── Session (context window & compaction) ───────────────────────────────────
 
 type (
 	// SessionOption configures a Session.
-	SessionOption = core.SessionOption
+	SessionOption = agent.SessionOption
 )
 
 const (
 	// DefaultContextWindow is the default context window size (in tokens) a
 	// session measures context fill against.
-	DefaultContextWindow = core.DefaultContextWindow
+	DefaultContextWindow = agent.DefaultContextWindow
 	// DefaultAutoCompactThreshold is the default context fill ratio at which
 	// an auto-compacting session compacts its history.
-	DefaultAutoCompactThreshold = core.DefaultAutoCompactThreshold
+	DefaultAutoCompactThreshold = agent.DefaultAutoCompactThreshold
 )
 
 // WithContextWindow sets the context window size (in tokens) the session
 // measures context fill against. Default DefaultContextWindow.
-func WithContextWindow(tokens int) SessionOption { return core.WithContextWindow(tokens) }
+func WithContextWindow(tokens int) SessionOption { return agent.WithContextWindow(tokens) }
 
 // WithAutoCompact enables automatic history compaction once the context fill
 // ratio reaches WithAutoCompactThreshold after an Ask. Default off. It never
 // applies to delegated sub-agents, which run without a session.
-func WithAutoCompact(enabled bool) SessionOption { return core.WithAutoCompact(enabled) }
+func WithAutoCompact(enabled bool) SessionOption { return agent.WithAutoCompact(enabled) }
 
 // WithAutoCompactThreshold sets the context fill ratio (0, 1] at which
 // auto-compact triggers. Default DefaultAutoCompactThreshold.
 func WithAutoCompactThreshold(ratio float64) SessionOption {
-	return core.WithAutoCompactThreshold(ratio)
+	return agent.WithAutoCompactThreshold(ratio)
 }

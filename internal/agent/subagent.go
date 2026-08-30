@@ -1,4 +1,4 @@
-package core
+package agent
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"sync"
 
 	client "github.com/great-magician-01/callable/internal/client"
+	model "github.com/great-magician-01/callable/internal/model"
+	skill "github.com/great-magician-01/callable/internal/skill"
 )
 
 // SubAgent is a named, self-contained agent definition the parent agent can
@@ -29,12 +31,12 @@ type SubAgent struct {
 	// delegate to this sub-agent.
 	Description string
 
-	client   *Client // nil: inherit the parent agent's client
-	model    string  // non-empty: override the model on the inherited client
-	prompt   string  // system prompt of the sub-agent
-	tools    []Tool  // tools available inside the sub-agent loop
-	skills   []Skill // skills available inside the sub-agent loop
-	thinking *Thinking
+	client   *client.Client // nil: inherit the parent agent's client
+	model    string         // non-empty: override the model on the inherited client
+	prompt   string         // system prompt of the sub-agent
+	tools    []model.Tool   // tools available inside the sub-agent loop
+	skills   []skill.Skill  // skills available inside the sub-agent loop
+	thinking *model.Thinking
 	maxTurns int
 }
 
@@ -54,7 +56,7 @@ func NewSubAgent(name, description string, opts ...SubAgentOption) SubAgent {
 // WithSubAgentClient gives the sub-agent its own client, e.g. a different
 // provider or endpoint than the parent's. When unset, the sub-agent inherits
 // the parent agent's client (see WithSubAgentModel for a cheap override).
-func WithSubAgentClient(client *Client) SubAgentOption {
+func WithSubAgentClient(client *client.Client) SubAgentOption {
 	return func(s *SubAgent) { s.client = client }
 }
 
@@ -72,18 +74,18 @@ func WithSubAgentPrompt(prompt string) SubAgentOption {
 
 // WithSubAgentTools registers tools available inside the sub-agent loop. They
 // are not visible to the parent agent.
-func WithSubAgentTools(tools ...Tool) SubAgentOption {
+func WithSubAgentTools(tools ...model.Tool) SubAgentOption {
 	return func(s *SubAgent) { s.tools = append(s.tools, tools...) }
 }
 
 // WithSubAgentSkills registers skills available inside the sub-agent loop
 // (with its own built-in read_skill tool).
-func WithSubAgentSkills(skills ...Skill) SubAgentOption {
+func WithSubAgentSkills(skills ...skill.Skill) SubAgentOption {
 	return func(s *SubAgent) { s.skills = append(s.skills, skills...) }
 }
 
 // WithSubAgentThinking configures thinking/reasoning for the sub-agent.
-func WithSubAgentThinking(t Thinking) SubAgentOption {
+func WithSubAgentThinking(t model.Thinking) SubAgentOption {
 	return func(s *SubAgent) { cp := t; s.thinking = &cp }
 }
 
@@ -125,7 +127,7 @@ const subAgentLoadToolDescription = "Load a sub-agent by name so it can be calle
 // materializes their call tools on load. It is safe for concurrent use, so
 // parallel sessions of the same agent may load sub-agents independently.
 type subAgentRegistry struct {
-	parent *Client
+	parent *client.Client
 	tools  *toolSet
 
 	mu     sync.Mutex
@@ -134,7 +136,7 @@ type subAgentRegistry struct {
 	loaded map[string]bool
 }
 
-func newSubAgentRegistry(parent *Client, tools *toolSet, subs []SubAgent) *subAgentRegistry {
+func newSubAgentRegistry(parent *client.Client, tools *toolSet, subs []SubAgent) *subAgentRegistry {
 	r := &subAgentRegistry{
 		parent: parent,
 		tools:  tools,
@@ -170,8 +172,8 @@ func (r *subAgentRegistry) empty() bool {
 }
 
 // newSubAgentLoadTool builds the built-in load_agent tool for a parent agent.
-func newSubAgentLoadTool(name string, reg *subAgentRegistry) Tool {
-	return NewTool(name, subAgentLoadToolDescription,
+func newSubAgentLoadTool(name string, reg *subAgentRegistry) model.Tool {
+	return model.NewTool(name, subAgentLoadToolDescription,
 		func(ctx context.Context, args subAgentLoadArgs) (any, error) {
 			return reg.load(args.Name)
 		})
@@ -187,7 +189,7 @@ func (r *subAgentRegistry) load(name string) (any, error) {
 
 	sub, ok := r.defs[name]
 	if !ok {
-		return ToolResult{
+		return model.ToolResult{
 			Content: fmt.Sprintf("sub-agent %q not found. Available sub-agents: %s",
 				name, strings.Join(r.order, ", ")),
 			IsError: true,
@@ -198,7 +200,7 @@ func (r *subAgentRegistry) load(name string) (any, error) {
 	already := r.loaded[name]
 	if !already {
 		if _, taken := r.tools.get(callName); taken {
-			return ToolResult{
+			return model.ToolResult{
 				Content: fmt.Sprintf("cannot load sub-agent %q: tool %q is already registered", name, callName),
 				IsError: true,
 			}, nil
@@ -227,7 +229,7 @@ func (s *SubAgent) usageCard(callName string, already bool) string {
 		caps = append(caps, t.Definition().Name)
 	}
 	if len(s.skills) > 0 {
-		caps = append(caps, DefaultSkillToolName)
+		caps = append(caps, skill.DefaultSkillToolName)
 	}
 	if len(caps) > 0 {
 		fmt.Fprintf(&b, "Its tools: %s\n", strings.Join(caps, ", "))
@@ -255,22 +257,22 @@ type subAgentEventSinkKey struct{}
 
 // newSubAgentCallTool builds the tool that runs one delegation to the
 // sub-agent. A fresh Agent is built per call, so calls never share history.
-func newSubAgentCallTool(sub SubAgent, parent *Client) Tool {
-	return NewTool(subAgentCallToolName(sub.Name), subAgentCallToolDescription(sub),
+func newSubAgentCallTool(sub SubAgent, parent *client.Client) model.Tool {
+	return model.NewTool(subAgentCallToolName(sub.Name), subAgentCallToolDescription(sub),
 		func(ctx context.Context, args subAgentCallArgs) (any, error) {
 			subAgent := sub.build(parent)
 			var (
-				res *AgentResult
+				res *model.AgentResult
 				err error
 			)
-			if sink, _ := ctx.Value(subAgentEventSinkKey{}).(eventSink); sink != nil {
+			if sink, _ := ctx.Value(subAgentEventSinkKey{}).(model.EventSink); sink != nil {
 				// Event forwarding is on: stream the sub-agent's loop and wrap
 				// every event with the sub-agent's name.
-				res, err = subAgent.RunStream(ctx, func(ev Event) {
-					sink(SubAgentEvent{SubAgent: sub.Name, Event: ev})
-				}, User(args.Task))
+				res, err = subAgent.RunStream(ctx, func(ev model.Event) {
+					sink(model.SubAgentEvent{SubAgent: sub.Name, Event: ev})
+				}, model.User(args.Task))
 			} else {
-				res, err = subAgent.Run(ctx, User(args.Task))
+				res, err = subAgent.Run(ctx, model.User(args.Task))
 			}
 			if err != nil {
 				// A sub-agent that hit its turn limit may still have produced
@@ -295,7 +297,7 @@ func newSubAgentCallTool(sub SubAgent, parent *Client) Tool {
 
 // build materializes the sub-agent's Agent. The client resolution order is:
 // explicit client > parent client with model override > parent client.
-func (s *SubAgent) build(parent *Client) *Agent {
+func (s *SubAgent) build(parent *client.Client) *Agent {
 	c := s.client
 	if c == nil {
 		c = parent
@@ -321,12 +323,12 @@ func (s *SubAgent) build(parent *Client) *Agent {
 
 // lastAssistantText returns the text of the last assistant message in a
 // (possibly partial) agent trajectory, or "" if none carries text.
-func lastAssistantText(result *AgentResult) string {
+func lastAssistantText(result *model.AgentResult) string {
 	if result == nil {
 		return ""
 	}
 	for i := len(result.Messages) - 1; i >= 0; i-- {
-		if m := result.Messages[i]; m.Role == RoleAssistant {
+		if m := result.Messages[i]; m.Role == model.RoleAssistant {
 			if text := strings.TrimSpace(m.Text()); text != "" {
 				return text
 			}

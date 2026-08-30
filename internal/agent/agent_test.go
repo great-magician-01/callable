@@ -1,13 +1,18 @@
-package core
+package agent
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"sync"
 	"testing"
+
+	client "github.com/great-magician-01/callable/internal/client"
+	. "github.com/great-magician-01/callable/internal/model"
+	provider "github.com/great-magician-01/callable/internal/provider"
+	skill "github.com/great-magician-01/callable/internal/skill"
+	. "github.com/great-magician-01/callable/internal/testutil"
 )
 
 // noopEvents discards streaming events; passing it keeps the agent on the
@@ -35,8 +40,8 @@ func weatherTool(executed *[]weatherArgs, result func(args weatherArgs) (any, er
 func chatAgentFixture(t *testing.T, turns []string, bodies *[]string, opts ...AgentOption) *Agent {
 	t.Helper()
 	server := NewMockServer(t, turns, bodies)
-	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
-	return NewAgent(client, opts...)
+	c := client.NewClient(provider.NewOpenAIProvider("k", server.URL), client.WithModel("m"))
+	return NewAgent(c, opts...)
 }
 
 func TestAgentToolErrorRecovery(t *testing.T) {
@@ -266,7 +271,7 @@ func TestAgentSkillFlow(t *testing.T) {
 	var bodies []string
 
 	agent := chatAgentFixture(t, []string{readSkillTurn, finalTurn}, &bodies,
-		WithSkills(NewSkill("pdf", "Export PDFs", "# PDF export instructions")),
+		WithSkills(skill.NewSkill("pdf", "Export PDFs", "# PDF export instructions")),
 	)
 
 	result, err := agent.RunStream(context.Background(), noopEvents, User("export a pdf"))
@@ -333,10 +338,10 @@ func TestAgentCreatePath(t *testing.T) {
 		"usage":{"prompt_tokens":5,"completion_tokens":7}}`
 	var bodies []string
 	server := NewMockJSONServer(t, []string{toolCallJSON, finalJSON}, &bodies)
-	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
+	c := client.NewClient(provider.NewOpenAIProvider("k", server.URL), client.WithModel("m"))
 
 	var executed []weatherArgs
-	agent := NewAgent(client, WithTools(weatherTool(&executed, nil)))
+	agent := NewAgent(c, WithTools(weatherTool(&executed, nil)))
 
 	result, err := agent.Run(context.Background(), User("weather?"))
 	if err != nil {
@@ -363,7 +368,7 @@ func TestAgentCreatePath(t *testing.T) {
 }
 
 func TestAgentRequiresInput(t *testing.T) {
-	agent := NewAgent(NewClient(NewOpenAIProvider("k", "https://chat.example.com/v1")))
+	agent := NewAgent(client.NewClient(provider.NewOpenAIProvider("k", "https://chat.example.com/v1")))
 	if _, err := agent.Run(context.Background()); err == nil {
 		t.Fatal("expected error for empty input")
 	}

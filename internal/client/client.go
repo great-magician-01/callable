@@ -2,7 +2,7 @@
 // fills in request defaults (model, sampling parameters, output format,
 // extras) and runs request/response hooks around every call. Create and
 // Stream are the low-level single-turn entry points; the automatic
-// tool-calling agent loop lives in internal/core on top of this package.
+// tool-calling agent loop lives in internal/agent on top of this package.
 package client
 
 import (

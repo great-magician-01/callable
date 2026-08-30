@@ -1,18 +1,22 @@
-package core
+package agent
 
 import (
 	"context"
-	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"testing"
+
+	client "github.com/great-magician-01/callable/internal/client"
+	. "github.com/great-magician-01/callable/internal/model"
+	provider "github.com/great-magician-01/callable/internal/provider"
+	. "github.com/great-magician-01/callable/internal/testutil"
 )
 
 // chatSessionFixture builds a session over a mock chat-completions JSON server.
 func chatSessionFixture(t *testing.T, responses []string, bodies *[]string, opts ...SessionOption) *Session {
 	t.Helper()
 	server := NewMockJSONServer(t, responses, bodies)
-	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
-	return NewAgent(client).Session(opts...)
+	c := client.NewClient(provider.NewOpenAIProvider("k", server.URL), client.WithModel("m"))
+	return NewAgent(c).Session(opts...)
 }
 
 // chatSessionMixedFixture builds a session over a mock server that answers
@@ -27,8 +31,8 @@ func chatSessionMixedFixture(t *testing.T, runBodies []string, compactBodies []s
 		responses = append(responses, MockBody{Body: b, SSE: true})
 	}
 	server := NewMockMixedServer(t, responses, bodies)
-	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
-	return NewAgent(client).Session(opts...)
+	c := client.NewClient(provider.NewOpenAIProvider("k", server.URL), client.WithModel("m"))
+	return NewAgent(c).Session(opts...)
 }
 
 func TestSessionContextUsageTracking(t *testing.T) {
@@ -159,8 +163,8 @@ func TestSessionAutoCompactEvent(t *testing.T) {
 		`{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":700,"completion_tokens":1}}`,
 	)
 	server := NewMockServer(t, []string{turn, ChatSSEUsage("a summary", 50)}, nil)
-	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
-	sess := NewAgent(client).Session(WithContextWindow(1000), WithAutoCompact(true))
+	c := client.NewClient(provider.NewOpenAIProvider("k", server.URL), client.WithModel("m"))
+	sess := NewAgent(c).Session(WithContextWindow(1000), WithAutoCompact(true))
 
 	var compactEvents []SessionCompactEvent
 	_, err := sess.AskStream(context.Background(), func(ev Event) {

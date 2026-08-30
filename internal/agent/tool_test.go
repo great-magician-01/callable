@@ -1,8 +1,10 @@
-package core
+package agent
 
 import (
 	"context"
 	"testing"
+
+	. "github.com/great-magician-01/callable/internal/model"
 )
 
 type weatherArgs struct {

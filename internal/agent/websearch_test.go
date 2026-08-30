@@ -1,15 +1,19 @@
-package core
+package agent
 
 import (
 	"context"
 	"encoding/json"
-	. "github.com/great-magician-01/callable/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+
+	client "github.com/great-magician-01/callable/internal/client"
+	. "github.com/great-magician-01/callable/internal/model"
+	provider "github.com/great-magician-01/callable/internal/provider"
+	. "github.com/great-magician-01/callable/internal/testutil"
 )
 
 // Web-search capability detection lives in internal/provider, whose
@@ -41,8 +45,8 @@ func TestAgentWebSearchDefaultBuiltin(t *testing.T) {
 	var bodies []string
 	finalTurn := ChatSSE(`{"choices":[{"delta":{"content":"done"}}]}`)
 	server := NewMockServer(t, []string{finalTurn}, &bodies)
-	client := NewClient(NewOpenAIProvider("k", server.URL, WithCompat(CompatQwen)), WithModel("m"))
-	agent := NewAgent(client) // default: auto -> built-in wins, no Tavily key
+	c := client.NewClient(provider.NewOpenAIProvider("k", server.URL, provider.WithCompat(provider.CompatQwen)), client.WithModel("m"))
+	agent := NewAgent(c) // default: auto -> built-in wins, no Tavily key
 
 	if !agent.webSearchBuiltin {
 		t.Fatal("expected webSearchBuiltin to be set")
@@ -64,8 +68,8 @@ func TestAgentWebSearchDisabled(t *testing.T) {
 	var bodies []string
 	finalTurn := ChatSSE(`{"choices":[{"delta":{"content":"done"}}]}`)
 	server := NewMockServer(t, []string{finalTurn}, &bodies)
-	client := NewClient(NewOpenAIProvider("k", server.URL, WithCompat(CompatQwen)), WithModel("m"))
-	agent := NewAgent(client, WithWebSearch(false), WithTavilyAPIKey("tvly-test"))
+	c := client.NewClient(provider.NewOpenAIProvider("k", server.URL, provider.WithCompat(provider.CompatQwen)), client.WithModel("m"))
+	agent := NewAgent(c, WithWebSearch(false), WithTavilyAPIKey("tvly-test"))
 
 	if agent.webSearchBuiltin {
 		t.Fatal("webSearchBuiltin must stay unset when disabled")
@@ -155,8 +159,8 @@ func TestAgentWebSearchTavilyFallback(t *testing.T) {
 func TestAgentWebSearchBuiltinPreferredOverTavily(t *testing.T) {
 	finalTurn := ChatSSE(`{"choices":[{"delta":{"content":"done"}}]}`)
 	server := NewMockServer(t, []string{finalTurn}, nil)
-	client := NewClient(NewOpenAIProvider("k", server.URL, WithCompat(CompatQwen)), WithModel("m"))
-	agent := NewAgent(client, WithTavilyAPIKey("tvly-test"))
+	c := client.NewClient(provider.NewOpenAIProvider("k", server.URL, provider.WithCompat(provider.CompatQwen)), client.WithModel("m"))
+	agent := NewAgent(c, WithTavilyAPIKey("tvly-test"))
 
 	if !agent.webSearchBuiltin {
 		t.Fatal("expected built-in search to win over the Tavily fallback")
@@ -174,10 +178,10 @@ func TestAgentWebSearchKimiEcho(t *testing.T) {
 	)
 	finalTurn := ChatSSE(`{"choices":[{"delta":{"content":"here is the news"}}]}`)
 	server := NewMockServer(t, []string{toolCallTurn, finalTurn}, &bodies)
-	client := NewClient(
-		NewOpenAIProvider("k", KimiURL, WithHTTPClient(hostRewriteClient(server))),
-		WithModel("m"))
-	agent := NewAgent(client)
+	c := client.NewClient(
+		provider.NewOpenAIProvider("k", provider.KimiURL, provider.WithHTTPClient(hostRewriteClient(server))),
+		client.WithModel("m"))
+	agent := NewAgent(c)
 
 	if !agent.webSearchBuiltin {
 		t.Fatal("expected webSearchBuiltin to be set for the echo protocol")

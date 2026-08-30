@@ -82,11 +82,11 @@ func isOfficialAnthropic(baseURL string) bool {
 }
 
 // kimiWebSearchToolName is Kimi's built-in web-search function on the wire.
-// The agent-side echo stub (internal/core) registers a tool under the same
-// name; the two packages cannot share a constant (core imports provider).
+// The agent-side echo stub (internal/agent) registers a tool under the same
+// name; the two packages cannot share a constant (agent imports provider).
 const kimiWebSearchToolName = "$web_search"
 
 // defaultWebSearchToolName is the wire name of Anthropic's server-side
-// web-search tool. It matches core.DefaultWebSearchToolName (the Tavily
+// web-search tool. It matches agent.DefaultWebSearchToolName (the Tavily
 // fallback tool is named after it); see the note above on sharing constants.
 const defaultWebSearchToolName = "web_search"

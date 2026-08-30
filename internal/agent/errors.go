@@ -1,7 +1,9 @@
-package core
+package agent
 
 import (
 	"fmt"
+
+	model "github.com/great-magician-01/callable/internal/model"
 )
 
 // MaxTurnsError is returned by Agent.Run when the agent loop hit the maximum
@@ -9,7 +11,7 @@ import (
 // everything that happened up to that point.
 type MaxTurnsError struct {
 	Turns   int
-	Partial *AgentResult
+	Partial *model.AgentResult
 }
 
 func (e *MaxTurnsError) Error() string {

@@ -1,9 +1,11 @@
-package core
+package agent
 
 import (
 	"context"
 	"fmt"
 	"strings"
+
+	model "github.com/great-magician-01/callable/internal/model"
 )
 
 // DefaultContextWindow is the default context window size (in tokens) a
@@ -79,7 +81,7 @@ func (s *Session) compact(ctx context.Context) (string, error) {
 	if transcript == "" {
 		return "", nil
 	}
-	req := NewRequest(User(transcript + "\n\n" + compactInstruction))
+	req := model.NewRequest(model.User(transcript + "\n\n" + compactInstruction))
 	resp, err := s.agent.client.Stream(ctx, req, nil)
 	if err != nil {
 		return "", fmt.Errorf("callable: compact: %w", err)
@@ -89,8 +91,8 @@ func (s *Session) compact(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("callable: compact: model returned an empty summary")
 	}
 	s.mu.Lock()
-	s.history = []Message{User(compactedPrefix + summary)}
-	s.contextUsage = Usage{}
+	s.history = []model.Message{model.User(compactedPrefix + summary)}
+	s.contextUsage = model.Usage{}
 	s.mu.Unlock()
 	return summary, nil
 }
@@ -99,33 +101,33 @@ func (s *Session) compact(ctx context.Context) (string, error) {
 // compaction summary call. Rendering to text (instead of replaying the raw
 // history) sidesteps provider round-trip concerns such as thinking
 // signatures, Responses reasoning items and tool-call pairing.
-func renderTranscript(msgs []Message) string {
+func renderTranscript(msgs []model.Message) string {
 	var b strings.Builder
 	for _, m := range msgs {
 		switch m.Role {
-		case RoleSystem:
+		case model.RoleSystem:
 			b.WriteString("\n\n[System]\n")
-		case RoleUser:
+		case model.RoleUser:
 			b.WriteString("\n\n[User]\n")
-		case RoleAssistant:
+		case model.RoleAssistant:
 			b.WriteString("\n\n[Assistant]\n")
-		case RoleTool:
+		case model.RoleTool:
 			b.WriteString("\n\n[Tool results]\n")
 		default:
 			b.WriteString("\n\n[" + string(m.Role) + "]\n")
 		}
 		for _, p := range m.Parts {
 			switch v := p.(type) {
-			case TextPart:
+			case model.TextPart:
 				b.WriteString(v.Text)
 				b.WriteString("\n")
-			case ThinkingPart:
+			case model.ThinkingPart:
 				b.WriteString("(thinking omitted)\n")
-			case ImagePart:
+			case model.ImagePart:
 				b.WriteString("(image omitted)\n")
-			case ToolCallPart:
+			case model.ToolCallPart:
 				fmt.Fprintf(&b, "tool call: %s(%s)\n", v.Name, v.Arguments)
-			case ToolResultPart:
+			case model.ToolResultPart:
 				content := v.Content
 				if v.IsError {
 					content = "ERROR: " + content

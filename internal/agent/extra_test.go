@@ -1,11 +1,14 @@
-package core
+package agent
 
 import (
 	"context"
 	"encoding/json"
-	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"testing"
+
+	. "github.com/great-magician-01/callable/internal/model"
+	skill "github.com/great-magician-01/callable/internal/skill"
+	. "github.com/great-magician-01/callable/internal/testutil"
 )
 
 // TestAgentSkillReadHook verifies the agent-level skill read hook and tool
@@ -22,7 +25,7 @@ func TestAgentSkillReadHook(t *testing.T) {
 	var bodies []string
 
 	agent := chatAgentFixture(t, []string{readSkillTurn, finalTurn}, &bodies,
-		WithSkills(NewSkill("pdf", "Export PDFs", "base instructions")),
+		WithSkills(skill.NewSkill("pdf", "Export PDFs", "base instructions")),
 		WithSkillToolName("load_skill"),
 		WithSkillReadHook(func(ctx context.Context, name, content string) (string, error) {
 			return content + " +hooked", nil

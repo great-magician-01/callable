@@ -1,4 +1,4 @@
-package core
+package agent
 
 import (
 	"context"
@@ -7,13 +7,16 @@ import (
 	"strings"
 	"testing"
 
+	client "github.com/great-magician-01/callable/internal/client"
+	. "github.com/great-magician-01/callable/internal/model"
+	provider "github.com/great-magician-01/callable/internal/provider"
 	. "github.com/great-magician-01/callable/internal/testutil"
 )
 
 // The agent-flow tests below drive a full agent loop against mock servers in
 // each provider's wire format, verifying request construction (history
-// replay) and stream parsing end to end. They live in core (not the provider
-// package) because they exercise the Agent loop.
+// replay) and stream parsing end to end. They live in the agent package (not
+// the provider package) because they exercise the Agent loop.
 
 // TestChatAgentFlow drives a full agent loop against a mock chat-completions
 // server, verifying request construction and stream parsing end to end.
@@ -40,14 +43,14 @@ func TestChatAgentFlow(t *testing.T) {
 
 	var requestBodies []string
 	server := NewMockServer(t, []string{toolCallTurn, finalTurn}, &requestBodies)
-	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
+	c := client.NewClient(provider.NewOpenAIProvider("k", server.URL), client.WithModel("m"))
 
 	var gotArgs weatherArgs
 	weather := NewTool("get_weather", "", func(ctx context.Context, args weatherArgs) (any, error) {
 		gotArgs = args
 		return "sunny", nil
 	})
-	agent := NewAgent(client, WithTools(weather))
+	agent := NewAgent(c, WithTools(weather))
 
 	var events []Event
 	result, err := agent.RunStream(context.Background(), func(ev Event) { events = append(events, ev) },
@@ -149,10 +152,10 @@ func TestResponsesAgentFlow(t *testing.T) {
 
 	var bodies []string
 	server := NewMockServer(t, []string{turn1, turn2}, &bodies)
-	client := NewClient(NewOpenAIResponsesProvider("k", server.URL), WithModel("gpt-x"))
+	c := client.NewClient(provider.NewOpenAIResponsesProvider("k", server.URL), client.WithModel("gpt-x"))
 
 	var executed []weatherArgs
-	agent := NewAgent(client, WithTools(weatherTool(&executed, nil)))
+	agent := NewAgent(c, WithTools(weatherTool(&executed, nil)))
 
 	result, err := agent.RunStream(context.Background(), noopEvents, User("Weather in Oslo?"))
 	if err != nil {
@@ -219,10 +222,10 @@ func TestAntAgentFlow(t *testing.T) {
 
 	var bodies []string
 	server := NewMockServer(t, []string{toolTurn, finalTurn}, &bodies)
-	client := NewClient(NewAnthropicProvider("k", server.URL), WithModel("claude-x"))
+	c := client.NewClient(provider.NewAnthropicProvider("k", server.URL), client.WithModel("claude-x"))
 
 	var executed []weatherArgs
-	agent := NewAgent(client, WithTools(weatherTool(&executed, nil)))
+	agent := NewAgent(c, WithTools(weatherTool(&executed, nil)))
 
 	var thinkingDeltas int
 	result, err := agent.RunStream(context.Background(), func(ev Event) {

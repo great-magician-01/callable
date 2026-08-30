@@ -1,11 +1,15 @@
-package core
+package agent
 
 import (
 	"context"
-	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"sync"
 	"testing"
+
+	client "github.com/great-magician-01/callable/internal/client"
+	. "github.com/great-magician-01/callable/internal/model"
+	provider "github.com/great-magician-01/callable/internal/provider"
+	. "github.com/great-magician-01/callable/internal/testutil"
 )
 
 // eventConversationID extracts the ConversationID from any event type.
@@ -79,8 +83,8 @@ func TestSessionEventsCarryConversationID(t *testing.T) {
 		`{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":1}}`,
 	)
 	server := NewMockServer(t, []string{turn}, nil)
-	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
-	sess := NewAgent(client).Session()
+	c := client.NewClient(provider.NewOpenAIProvider("k", server.URL), client.WithModel("m"))
+	sess := NewAgent(c).Session()
 
 	var events []Event
 	if _, err := sess.AskStream(context.Background(), func(ev Event) {
@@ -190,8 +194,8 @@ func TestSubAgentEventConversationIDs(t *testing.T) {
 func TestSessionSnapshotRestore(t *testing.T) {
 	responses := []string{ChatJSONUsage("hi", 450)}
 	server := NewMockJSONServer(t, responses, nil)
-	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
-	agent := NewAgent(client)
+	c := client.NewClient(provider.NewOpenAIProvider("k", server.URL), client.WithModel("m"))
+	agent := NewAgent(c)
 
 	sess := agent.Session(WithContextWindow(1000))
 	if _, err := sess.Ask(context.Background(), User("hello")); err != nil {
@@ -337,8 +341,8 @@ func TestSessionRestoreOverwritesAndContinues(t *testing.T) {
 		ChatJSONUsage("restored answer", 50),
 	}
 	server := NewMockJSONServer(t, responses, nil)
-	client := NewClient(NewOpenAIProvider("k", server.URL), WithModel("m"))
-	agent := NewAgent(client)
+	c := client.NewClient(provider.NewOpenAIProvider("k", server.URL), client.WithModel("m"))
+	agent := NewAgent(c)
 
 	sess := agent.Session()
 	if _, err := sess.Ask(context.Background(), User("hello")); err != nil {

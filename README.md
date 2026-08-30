@@ -336,7 +336,7 @@ if errors.Is(err, context.DeadlineExceeded) {
 
 - **统一消息模型**：内部只有一种 `Message{Role, Parts}`，Part 为封闭类型族（Text/Image/Thinking/ToolCall/ToolResult）。各 Provider 负责双向转换，业务代码不感知 wire 格式。
 - **历史回传保真**：assistant 消息可携带 per-provider 原始数据（`Message.SetProviderExtra`），例如 Responses 的 reasoning item 原文回传；`Message` 支持完整 JSON 序列化往返，可持久化。
-- **单一入口**：实现在 `internal/core`，根包 `callable` 的 `callable.go` 是唯一对外入口（全量 re-export），一个 import 拿到全部能力。
+- **单一入口**：实现按功能拆分在 `internal/` 下的内部包（model / provider / client / skill / agent），根包 `callable` 的 `callable.go` 是唯一对外入口（全量 re-export），一个 import 拿到全部能力。
 
 ## License
 

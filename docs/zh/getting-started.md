@@ -26,7 +26,7 @@ go get github.com/great-magician-01/callable
 import callable "github.com/great-magician-01/callable"
 ```
 
-- 根包 `callable` 是唯一的对外入口（`callable.go` 全量 re-export `internal/core`），一次 import 拿到全部能力。
+- 根包 `callable` 是唯一的对外入口（`callable.go` 全量 re-export `internal/` 下的各内部包），一次 import 拿到全部能力。
 - 网络层（HTTP、SSE）全部用标准库实现；唯一第三方依赖是 `invopop/jsonschema`（用于工具参数的 JSON Schema 反射）。
 
 ## 创建 Client 与 Provider

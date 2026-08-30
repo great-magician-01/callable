@@ -1,4 +1,4 @@
-package core
+package agent
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	model "github.com/great-magician-01/callable/internal/model"
 	provider "github.com/great-magician-01/callable/internal/provider"
 )
 
@@ -17,7 +18,9 @@ const DefaultWebSearchToolName = "web_search"
 
 // kimiWebSearchToolName is Kimi's built-in web-search function. The server
 // performs the actual search when the client echoes the call arguments back
-// as the tool result.
+// as the tool result. The provider package declares the same constant for the
+// wire rendering; the two are deliberately mirrored because the packages
+// cannot share it (agent imports provider, not the other way around).
 const kimiWebSearchToolName = "$web_search"
 
 // ── Agent options ──────────────────────────────────────────────────────────
@@ -69,8 +72,8 @@ func (a *Agent) resolveWebSearch() {
 // newKimiWebSearchTool builds the $web_search stub for Kimi's builtin
 // function protocol: the tool result is the call arguments echoed back
 // verbatim, which is the signal for the server to run the search.
-func newKimiWebSearchTool() Tool {
-	return NewRawTool(kimiWebSearchToolName,
+func newKimiWebSearchTool() model.Tool {
+	return model.NewRawTool(kimiWebSearchToolName,
 		"Search the web for current information.",
 		`{"type":"object","properties":{"query":{"type":"string","description":"The search query"}}}`,
 		func(_ context.Context, rawArgs string) (any, error) {
@@ -95,8 +98,8 @@ type tavilySearchArgs struct {
 
 // newTavilyWebSearchTool builds the web_search function tool backed by the
 // Tavily search API.
-func newTavilyWebSearchTool(apiKey string) Tool {
-	return NewTool(DefaultWebSearchToolName,
+func newTavilyWebSearchTool(apiKey string) model.Tool {
+	return model.NewTool(DefaultWebSearchToolName,
 		"Search the web for current information. Returns a short answer and a ranked list of results with titles, URLs and content snippets.",
 		func(ctx context.Context, args tavilySearchArgs) (any, error) {
 			return tavilySearch(ctx, apiKey, args)

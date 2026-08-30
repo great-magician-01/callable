@@ -1,10 +1,15 @@
-package core
+package agent
 
 import (
 	"context"
-	. "github.com/great-magician-01/callable/internal/testutil"
 	"strings"
 	"testing"
+
+	client "github.com/great-magician-01/callable/internal/client"
+	. "github.com/great-magician-01/callable/internal/model"
+	provider "github.com/great-magician-01/callable/internal/provider"
+	skill "github.com/great-magician-01/callable/internal/skill"
+	. "github.com/great-magician-01/callable/internal/testutil"
 )
 
 // translatorSub builds a minimal sub-agent definition for tests.
@@ -200,7 +205,7 @@ func TestSubAgentModelOverride(t *testing.T) {
 
 	var bodies []string
 	server := NewMockServer(t, []string{callTurn, subAnswer, finalTurn}, &bodies)
-	parent := NewClient(NewOpenAIProvider("k", server.URL), WithModel("parent-m"))
+	parent := client.NewClient(provider.NewOpenAIProvider("k", server.URL), client.WithModel("parent-m"))
 	agent := NewAgent(parent,
 		// Preload the sub-agent to keep the request sequence short.
 		WithSubAgents(translatorSub(WithSubAgentModel("sub-m"))),
@@ -243,7 +248,7 @@ func TestSubAgentToolsAndSkills(t *testing.T) {
 		})
 	sub := NewSubAgent("researcher", "Research a topic",
 		WithSubAgentTools(search),
-		WithSubAgentSkills(NewSkill("citing", "Cite sources properly", "# citing rules")),
+		WithSubAgentSkills(skill.NewSkill("citing", "Cite sources properly", "# citing rules")),
 	)
 
 	var bodies []string
@@ -262,7 +267,7 @@ func TestSubAgentToolsAndSkills(t *testing.T) {
 		t.Errorf("sub-agent internals leaked into parent request:\n%s", bodies[0])
 	}
 	// Sub-agent request: its own tool plus the built-in read_skill.
-	for _, want := range []string{"web_search", DefaultSkillToolName, "citing"} {
+	for _, want := range []string{"web_search", skill.DefaultSkillToolName, "citing"} {
 		if !strings.Contains(bodies[1], want) {
 			t.Errorf("sub-agent request missing %q:\n%s", want, bodies[1])
 		}
@@ -276,11 +281,11 @@ func TestSubAgentCustomClient(t *testing.T) {
 	var subBodies []string
 	subServer := NewMockServer(t, []string{subAnswer}, &subBodies)
 
-	sub := translatorSub(WithSubAgentClient(NewClient(
-		NewOpenAIProvider("k", subServer.URL), WithModel("sub-m"))))
+	sub := translatorSub(WithSubAgentClient(client.NewClient(
+		provider.NewOpenAIProvider("k", subServer.URL), client.WithModel("sub-m"))))
 
 	set := newToolSet()
-	parent := NewClient(NewOpenAIProvider("k", "http://unused.invalid"), WithModel("parent-m"))
+	parent := client.NewClient(provider.NewOpenAIProvider("k", "http://unused.invalid"), client.WithModel("parent-m"))
 	reg := newSubAgentRegistry(parent, set, []SubAgent{sub})
 	if _, err := reg.load("translator"); err != nil {
 		t.Fatal(err)

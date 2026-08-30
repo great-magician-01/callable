@@ -1,15 +1,19 @@
-package core
+package agent
 
 import (
 	"context"
 	"errors"
-	. "github.com/great-magician-01/callable/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	client "github.com/great-magician-01/callable/internal/client"
+	. "github.com/great-magician-01/callable/internal/model"
+	provider "github.com/great-magician-01/callable/internal/provider"
+	. "github.com/great-magician-01/callable/internal/testutil"
 )
 
 // blockingSSEServer sends one SSE chunk, flushes, then blocks until the
@@ -39,9 +43,9 @@ func TestChatStreamCancelReturnsPartial(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	client := NewClient(NewOpenAIProvider("k", srv.URL), WithModel("m"))
+	c := client.NewClient(provider.NewOpenAIProvider("k", srv.URL), client.WithModel("m"))
 
-	resp, err := client.Stream(ctx, NewRequest(User("hi")), func(ev Event) {
+	resp, err := c.Stream(ctx, NewRequest(User("hi")), func(ev Event) {
 		if _, ok := ev.(TextDeltaEvent); ok {
 			cancel() // stop after the first text delta
 		}
@@ -76,9 +80,9 @@ func TestAnthropicStreamCancelReturnsPartial(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	client := NewClient(NewAnthropicProvider("k", srv.URL), WithModel("claude-x"))
+	c := client.NewClient(provider.NewAnthropicProvider("k", srv.URL), client.WithModel("claude-x"))
 
-	resp, err := client.Stream(ctx, NewRequest(User("hi")), func(ev Event) {
+	resp, err := c.Stream(ctx, NewRequest(User("hi")), func(ev Event) {
 		if _, ok := ev.(TextDeltaEvent); ok {
 			cancel()
 		}
@@ -119,8 +123,8 @@ func TestAgentCancelStopsBeforeNextTurn(t *testing.T) {
 		cancel() // cancel the run from inside the tool
 		return "sunny", nil
 	})
-	client := NewClient(NewOpenAIProvider("k", srv.URL), WithModel("m"))
-	agent := NewAgent(client, WithTools(tool))
+	c := client.NewClient(provider.NewOpenAIProvider("k", srv.URL), client.WithModel("m"))
+	agent := NewAgent(c, WithTools(tool))
 
 	result, err := agent.RunStream(ctx, noopEvents, User("weather?"))
 
@@ -169,8 +173,8 @@ func TestAgentCancelSkipsRemainingTools(t *testing.T) {
 		atomic.StoreInt32(&secondRan, 1)
 		return "should not run", nil
 	})
-	client := NewClient(NewOpenAIProvider("k", srv.URL), WithModel("m"))
-	agent := NewAgent(client, WithTools(first, second))
+	c := client.NewClient(provider.NewOpenAIProvider("k", srv.URL), client.WithModel("m"))
+	agent := NewAgent(c, WithTools(first, second))
 
 	result, err := agent.RunStream(ctx, noopEvents, User("go"))
 
@@ -205,9 +209,9 @@ func TestCreateCanceledContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	client := NewClient(NewOpenAIProvider("k", srv.URL), WithModel("m"))
+	c := client.NewClient(provider.NewOpenAIProvider("k", srv.URL), client.WithModel("m"))
 
-	if _, err := client.Create(ctx, NewRequest(User("hi"))); !errors.Is(err, context.Canceled) {
+	if _, err := c.Create(ctx, NewRequest(User("hi"))); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 	if got := atomic.LoadInt32(&requests); got != 0 {
@@ -230,8 +234,8 @@ func TestSessionCancelKeepsHistory(t *testing.T) {
 		cancel()
 		return "sunny", nil
 	})
-	client := NewClient(NewOpenAIProvider("k", srv.URL), WithModel("m"))
-	sess := NewAgent(client, WithTools(tool)).Session()
+	c := client.NewClient(provider.NewOpenAIProvider("k", srv.URL), client.WithModel("m"))
+	sess := NewAgent(c, WithTools(tool)).Session()
 
 	if _, err := sess.AskStream(ctx, noopEvents, User("weather?")); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)

@@ -26,7 +26,7 @@ Module path and package name:
 import callable "github.com/great-magician-01/callable"
 ```
 
-- The root package `callable` is the single public entry point (`callable.go` re-exports everything from `internal/core`); one import gives you the full API.
+- The root package `callable` is the single public entry point (`callable.go` re-exports everything from the internal packages under `internal/`); one import gives you the full API.
 - The network layer (HTTP, SSE) is implemented with the standard library only; the sole third-party dependency is `invopop/jsonschema` (used to reflect tool argument structs into JSON Schema).
 
 ## Creating a Client and Provider

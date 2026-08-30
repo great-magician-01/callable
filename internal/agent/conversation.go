@@ -1,48 +1,52 @@
-package core
+package agent
+
+import (
+	model "github.com/great-magician-01/callable/internal/model"
+)
 
 // stampConversationID returns a sink that stamps every forwarded event with
 // the given conversation ID.
-func stampConversationID(sink eventSink, id string) eventSink {
-	return func(ev Event) { sink(withConversationID(ev, id)) }
+func stampConversationID(sink model.EventSink, id string) model.EventSink {
+	return func(ev model.Event) { sink(withConversationID(ev, id)) }
 }
 
 // withConversationID returns ev with its ConversationID field set.
-func withConversationID(ev Event, id string) Event {
+func withConversationID(ev model.Event, id string) model.Event {
 	switch e := ev.(type) {
-	case MessageStartEvent:
+	case model.MessageStartEvent:
 		e.ConversationID = id
 		return e
-	case ThinkingDeltaEvent:
+	case model.ThinkingDeltaEvent:
 		e.ConversationID = id
 		return e
-	case TextDeltaEvent:
+	case model.TextDeltaEvent:
 		e.ConversationID = id
 		return e
-	case ToolCallDeltaEvent:
+	case model.ToolCallDeltaEvent:
 		e.ConversationID = id
 		return e
-	case MessageDoneEvent:
+	case model.MessageDoneEvent:
 		e.ConversationID = id
 		return e
-	case TurnStartEvent:
+	case model.TurnStartEvent:
 		e.ConversationID = id
 		return e
-	case TurnEndEvent:
+	case model.TurnEndEvent:
 		e.ConversationID = id
 		return e
-	case ToolCallEvent:
+	case model.ToolCallEvent:
 		e.ConversationID = id
 		return e
-	case ToolResultEvent:
+	case model.ToolResultEvent:
 		e.ConversationID = id
 		return e
-	case AgentDoneEvent:
+	case model.AgentDoneEvent:
 		e.ConversationID = id
 		return e
-	case SubAgentEvent:
+	case model.SubAgentEvent:
 		e.ConversationID = id
 		return e
-	case SessionCompactEvent:
+	case model.SessionCompactEvent:
 		e.ConversationID = id
 		return e
 	default:

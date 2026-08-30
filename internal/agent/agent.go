@@ -1,4 +1,4 @@
-package core
+package agent
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	client "github.com/great-magician-01/callable/internal/client"
+	model "github.com/great-magician-01/callable/internal/model"
 	skill "github.com/great-magician-01/callable/internal/skill"
 )
 
@@ -41,26 +43,26 @@ func ReplaceArgs(argsJSON string) ToolDecision {
 // ToolCallHook intercepts every tool call before execution. Use it to
 // implement approval gates, argument rewriting, or auditing. Returning an
 // error aborts the agent run.
-type ToolCallHook func(ctx context.Context, call ToolCall) (ToolDecision, error)
+type ToolCallHook func(ctx context.Context, call model.ToolCall) (ToolDecision, error)
 
 // Agent runs the tool-calling loop: send conversation -> if the model
 // requests tools, execute them and feed results back -> repeat until the
 // model answers without tool calls (or the turn limit is hit).
 type Agent struct {
-	client *Client
+	client *client.Client
 
 	systemPrompt string
-	userTools    []Tool
-	skills       []Skill
+	userTools    []model.Tool
+	skills       []skill.Skill
 	subAgents    []SubAgent
-	thinking     *Thinking
+	thinking     *model.Thinking
 
 	maxTurns      int
 	toolHook      ToolCallHook
 	parallelTools bool
 
 	skillToolName     string
-	skillHook         SkillReadHook
+	skillHook         skill.SkillReadHook
 	skillToolDisabled bool
 
 	subAgentToolName     string
@@ -85,14 +87,14 @@ func WithSystemPrompt(prompt string) AgentOption {
 }
 
 // WithTools registers tools the model may call.
-func WithTools(tools ...Tool) AgentOption {
+func WithTools(tools ...model.Tool) AgentOption {
 	return func(a *Agent) { a.userTools = append(a.userTools, tools...) }
 }
 
 // WithSkills registers skills (progressive disclosure: name and description
 // go into the system prompt; the model loads full instructions via the
 // built-in read_skill tool).
-func WithSkills(skills ...Skill) AgentOption {
+func WithSkills(skills ...skill.Skill) AgentOption {
 	return func(a *Agent) { a.skills = append(a.skills, skills...) }
 }
 
@@ -106,7 +108,7 @@ func WithSubAgents(subs ...SubAgent) AgentOption {
 }
 
 // WithThinking enables reasoning mode for all runs.
-func WithThinking(t Thinking) AgentOption {
+func WithThinking(t model.Thinking) AgentOption {
 	return func(a *Agent) { cp := t; a.thinking = &cp }
 }
 
@@ -132,7 +134,7 @@ func WithParallelToolExecution(enabled bool) AgentOption {
 
 // WithSkillReadHook installs a hook that can rewrite skill instructions
 // before they are returned to the model by read_skill.
-func WithSkillReadHook(h SkillReadHook) AgentOption {
+func WithSkillReadHook(h skill.SkillReadHook) AgentOption {
 	return func(a *Agent) { a.skillHook = h }
 }
 
@@ -178,11 +180,11 @@ func WithSubAgentEvents(enabled bool) AgentOption {
 }
 
 // NewAgent creates an Agent over the client.
-func NewAgent(client *Client, opts ...AgentOption) *Agent {
+func NewAgent(client *client.Client, opts ...AgentOption) *Agent {
 	a := &Agent{
 		client:           client,
 		maxTurns:         25,
-		skillToolName:    DefaultSkillToolName,
+		skillToolName:    skill.DefaultSkillToolName,
 		subAgentToolName: DefaultSubAgentLoadToolName,
 	}
 	for _, o := range opts {
@@ -202,7 +204,7 @@ func NewAgent(client *Client, opts ...AgentOption) *Agent {
 }
 
 // Run runs the agent loop without streaming.
-func (a *Agent) Run(ctx context.Context, messages ...Message) (*AgentResult, error) {
+func (a *Agent) Run(ctx context.Context, messages ...model.Message) (*model.AgentResult, error) {
 	return a.RunStream(ctx, nil, messages...)
 }
 
@@ -219,13 +221,13 @@ func (a *Agent) Run(ctx context.Context, messages ...Message) (*AgentResult, err
 // every tool call stays paired with a result. The returned result is non-nil
 // and carries the partial trajectory; the error matches the context error
 // (errors.Is(err, context.Canceled) / context.DeadlineExceeded).
-func (a *Agent) RunStream(ctx context.Context, onEvent eventSink, messages ...Message) (*AgentResult, error) {
+func (a *Agent) RunStream(ctx context.Context, onEvent model.EventSink, messages ...model.Message) (*model.AgentResult, error) {
 	return a.run(ctx, newID("run"), onEvent, messages...)
 }
 
 // run is RunStream with an explicit conversation ID (sessions pass theirs).
-func (a *Agent) run(ctx context.Context, conversationID string, onEvent eventSink, messages ...Message) (*AgentResult, error) {
-	result := &AgentResult{ConversationID: conversationID, Messages: append([]Message{}, messages...)}
+func (a *Agent) run(ctx context.Context, conversationID string, onEvent model.EventSink, messages ...model.Message) (*model.AgentResult, error) {
+	result := &model.AgentResult{ConversationID: conversationID, Messages: append([]model.Message{}, messages...)}
 	if len(messages) == 0 {
 		return result, fmt.Errorf("callable: agent run requires at least one input message")
 	}
@@ -240,7 +242,7 @@ func (a *Agent) run(ctx context.Context, conversationID string, onEvent eventSin
 		ctx = context.WithValue(ctx, subAgentEventSinkKey{}, onEvent)
 	}
 
-	conv := make([]Message, 0, len(messages)+4)
+	conv := make([]model.Message, 0, len(messages)+4)
 	if sys := a.systemMessage(); sys.Role != "" {
 		conv = append(conv, sys)
 	}
@@ -251,16 +253,16 @@ func (a *Agent) run(ctx context.Context, conversationID string, onEvent eventSin
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
-		emit(onEvent, TurnStartEvent{Turn: turn})
+		emit(onEvent, model.TurnStartEvent{Turn: turn})
 
-		req := NewRequest(conv...).WithTools(a.tools.list()...)
+		req := model.NewRequest(conv...).WithTools(a.tools.list()...)
 		if a.thinking != nil {
 			req.Thinking = a.thinking
 		}
 		req.WebSearch = a.webSearchBuiltin
 
 		var (
-			resp *Response
+			resp *model.Response
 			err  error
 		)
 		if onEvent != nil {
@@ -287,10 +289,10 @@ func (a *Agent) run(ctx context.Context, conversationID string, onEvent eventSin
 		result.Messages = append(result.Messages, resp.Message)
 
 		if len(resp.ToolCalls) == 0 {
-			emit(onEvent, TurnEndEvent{Turn: turn})
+			emit(onEvent, model.TurnEndEvent{Turn: turn})
 			result.FinalText = resp.Text
 			result.StopReason = AgentCompleted
-			emit(onEvent, AgentDoneEvent{Result: result})
+			emit(onEvent, model.AgentDoneEvent{Result: result})
 			return result, nil
 		}
 
@@ -298,11 +300,11 @@ func (a *Agent) run(ctx context.Context, conversationID string, onEvent eventSin
 		if err != nil {
 			return result, err
 		}
-		toolMsg := ToolResults(resultParts...)
+		toolMsg := model.ToolResults(resultParts...)
 		conv = append(conv, toolMsg)
 		result.Messages = append(result.Messages, toolMsg)
 
-		emit(onEvent, TurnEndEvent{Turn: turn})
+		emit(onEvent, model.TurnEndEvent{Turn: turn})
 	}
 
 	result.StopReason = AgentMaxTurns
@@ -311,7 +313,7 @@ func (a *Agent) run(ctx context.Context, conversationID string, onEvent eventSin
 
 // systemMessage assembles the system prompt: base prompt + skill index +
 // sub-agent index.
-func (a *Agent) systemMessage() Message {
+func (a *Agent) systemMessage() model.Message {
 	var b strings.Builder
 	if a.systemPrompt != "" {
 		b.WriteString(a.systemPrompt)
@@ -329,15 +331,15 @@ func (a *Agent) systemMessage() Message {
 		b.WriteString(subAgentIndexBlock(a.subAgentToolName, a.subs.list()))
 	}
 	if b.Len() == 0 {
-		return Message{}
+		return model.Message{}
 	}
-	return System(b.String())
+	return model.System(b.String())
 }
 
 // executeToolCalls runs every requested tool call (sequentially or in
 // parallel), emitting ToolCall/ToolResult events.
-func (a *Agent) executeToolCalls(ctx context.Context, calls []ToolCall, onEvent eventSink) ([]ToolResultPart, error) {
-	results := make([]ToolResultPart, len(calls))
+func (a *Agent) executeToolCalls(ctx context.Context, calls []model.ToolCall, onEvent model.EventSink) ([]model.ToolResultPart, error) {
+	results := make([]model.ToolResultPart, len(calls))
 	if a.parallelTools {
 		var (
 			wg       sync.WaitGroup
@@ -346,7 +348,7 @@ func (a *Agent) executeToolCalls(ctx context.Context, calls []ToolCall, onEvent 
 		)
 		for i, call := range calls {
 			wg.Add(1)
-			go func(i int, call ToolCall) {
+			go func(i int, call model.ToolCall) {
 				defer wg.Done()
 				part, err := a.executeOne(ctx, call, onEvent)
 				results[i] = part
@@ -379,15 +381,15 @@ func (a *Agent) executeToolCalls(ctx context.Context, calls []ToolCall, onEvent 
 // executeOne runs a single tool call through the hook (if any) and the
 // registry. Tool execution errors become IsError results for the model; only
 // hook errors abort the run.
-func (a *Agent) executeOne(ctx context.Context, call ToolCall, onEvent eventSink) (ToolResultPart, error) {
-	part := ToolResultPart{ToolCallID: call.ID, Name: call.Name}
+func (a *Agent) executeOne(ctx context.Context, call model.ToolCall, onEvent model.EventSink) (model.ToolResultPart, error) {
+	part := model.ToolResultPart{ToolCallID: call.ID, Name: call.Name}
 
 	// If the context is already done, skip execution but still produce a
 	// result so every tool call stays paired with a tool result.
 	if err := ctx.Err(); err != nil {
 		part.Content = "tool execution skipped: " + err.Error()
 		part.IsError = true
-		emit(onEvent, ToolResultEvent{Call: call, Result: ToolResult{Content: part.Content, IsError: true}})
+		emit(onEvent, model.ToolResultEvent{Call: call, Result: model.ToolResult{Content: part.Content, IsError: true}})
 		return part, nil
 	}
 
@@ -404,7 +406,7 @@ func (a *Agent) executeOne(ctx context.Context, call ToolCall, onEvent eventSink
 			}
 			part.Content = "Tool call denied: " + reason
 			part.IsError = true
-			emit(onEvent, ToolResultEvent{Call: call, Result: ToolResult{Content: part.Content, IsError: part.IsError}})
+			emit(onEvent, model.ToolResultEvent{Call: call, Result: model.ToolResult{Content: part.Content, IsError: part.IsError}})
 			return part, nil
 		}
 		if decision.NewArgs != "" {
@@ -412,12 +414,12 @@ func (a *Agent) executeOne(ctx context.Context, call ToolCall, onEvent eventSink
 		}
 	}
 
-	emit(onEvent, ToolCallEvent{Call: call})
+	emit(onEvent, model.ToolCallEvent{Call: call})
 
 	tool, ok := a.tools.get(call.Name)
-	var result ToolResult
+	var result model.ToolResult
 	if !ok {
-		result = ErrorResult(fmt.Errorf("unknown tool %q (available tools: %s)",
+		result = model.ErrorResult(fmt.Errorf("unknown tool %q (available tools: %s)",
 			call.Name, strings.Join(a.toolNames(), ", ")))
 	} else {
 		result = tool.Execute(ctx, args)
@@ -425,7 +427,7 @@ func (a *Agent) executeOne(ctx context.Context, call ToolCall, onEvent eventSink
 
 	part.Content = result.Content
 	part.IsError = result.IsError
-	emit(onEvent, ToolResultEvent{Call: call, Result: result})
+	emit(onEvent, model.ToolResultEvent{Call: call, Result: result})
 	return part, nil
 }
 
@@ -437,7 +439,7 @@ func (a *Agent) toolNames() []string {
 	return names
 }
 
-func emit(onEvent eventSink, ev Event) {
+func emit(onEvent model.EventSink, ev model.Event) {
 	if onEvent != nil {
 		onEvent(ev)
 	}
@@ -466,12 +468,12 @@ type Session struct {
 	askMu sync.Mutex   // serializes Ask/AskStream/Compact
 	mu    sync.RWMutex // guards history and contextUsage
 
-	history []Message
+	history []model.Message
 
 	contextWindow        int
 	autoCompact          bool
 	autoCompactThreshold float64
-	contextUsage         Usage // last turn's usage; ContextTokens is the current fill
+	contextUsage         model.Usage // last turn's usage; ContextTokens is the current fill
 }
 
 // Session creates a new conversation session, configured by opts (see
@@ -499,22 +501,22 @@ func (s *Session) ID() string {
 }
 
 // Ask appends messages to the conversation and runs the agent loop.
-func (s *Session) Ask(ctx context.Context, messages ...Message) (*AgentResult, error) {
+func (s *Session) Ask(ctx context.Context, messages ...model.Message) (*model.AgentResult, error) {
 	return s.ask(ctx, nil, messages)
 }
 
 // AskStream is Ask with streaming events.
-func (s *Session) AskStream(ctx context.Context, onEvent eventSink, messages ...Message) (*AgentResult, error) {
+func (s *Session) AskStream(ctx context.Context, onEvent model.EventSink, messages ...model.Message) (*model.AgentResult, error) {
 	return s.ask(ctx, onEvent, messages)
 }
 
-func (s *Session) ask(ctx context.Context, onEvent eventSink, messages []Message) (*AgentResult, error) {
+func (s *Session) ask(ctx context.Context, onEvent model.EventSink, messages []model.Message) (*model.AgentResult, error) {
 	s.askMu.Lock()
 	defer s.askMu.Unlock()
 
 	s.mu.RLock()
 	id := s.id
-	input := append(append([]Message{}, s.history...), messages...)
+	input := append(append([]model.Message{}, s.history...), messages...)
 	s.mu.RUnlock()
 
 	result, err := s.agent.run(ctx, id, onEvent, input...)
@@ -534,7 +536,7 @@ func (s *Session) ask(ctx context.Context, onEvent eventSink, messages []Message
 			// Best-effort: a failed compaction leaves the history untouched
 			// and does not fail the Ask.
 			if summary, cerr := s.compact(ctx); cerr == nil {
-				emit(onEvent, SessionCompactEvent{
+				emit(onEvent, model.SessionCompactEvent{
 					ConversationID: id,
 					Summary:        summary,
 					TokensBefore:   result.LastTurnUsage.ContextTokens,
@@ -553,7 +555,7 @@ func (s *Session) ContextWindow() int { return s.contextWindow }
 // in the context window at that point. The zero value is returned before the
 // first successful Ask and right after a compaction or Reset; a failed Ask
 // leaves the previous value untouched.
-func (s *Session) ContextUsage() Usage {
+func (s *Session) ContextUsage() model.Usage {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.contextUsage
@@ -571,17 +573,17 @@ func (s *Session) ContextFillRatio() float64 {
 }
 
 // History returns the conversation so far (without the system prompt).
-func (s *Session) History() []Message {
+func (s *Session) History() []model.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return append([]Message{}, s.history...)
+	return append([]model.Message{}, s.history...)
 }
 
 // SetHistory replaces the conversation, e.g. restoring persisted state.
-func (s *Session) SetHistory(messages []Message) {
+func (s *Session) SetHistory(messages []model.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.history = append([]Message{}, messages...)
+	s.history = append([]model.Message{}, messages...)
 }
 
 // Reset clears the conversation.
@@ -589,14 +591,14 @@ func (s *Session) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.history = nil
-	s.contextUsage = Usage{}
+	s.contextUsage = model.Usage{}
 }
 
 // sessionSnapshot is the persisted form of a Session's state.
 type sessionSnapshot struct {
-	ID           string    `json:"id"`
-	History      []Message `json:"history"`
-	ContextUsage Usage     `json:"context_usage"`
+	ID           string          `json:"id"`
+	History      []model.Message `json:"history"`
+	ContextUsage model.Usage     `json:"context_usage"`
 }
 
 // Snapshot serializes the session state (ID, history, context usage) as JSON

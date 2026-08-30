@@ -9,7 +9,7 @@ import (
 )
 
 // kimiWebSearchStub mirrors the agent-side $web_search echo stub
-// (internal/core); the wire rendering only looks at the tool name.
+// (internal/agent); the wire rendering only looks at the tool name.
 func kimiWebSearchStub() Tool {
 	return NewRawTool(kimiWebSearchToolName,
 		"Search the web for current information.",
