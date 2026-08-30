@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/great-magician-01/callable/compare/v0.8.0...v0.9.0) (2026-08-30)
+
+
+### Features
+
+* add support for custom HTTP headers in requests and clients ([13afe5d](https://github.com/great-magician-01/callable/commit/13afe5d74aabe736c13ad1f091e86b8bbb5f3bca))
+* add support for custom HTTP headers in requests and clients ([bae88d8](https://github.com/great-magician-01/callable/commit/bae88d859d963107f7082ec52acd20ac0c3be8a4))
+
 ## [0.8.0](https://github.com/great-magician-01/callable/compare/v0.7.0...v0.8.0) (2026-08-28)
 
 
