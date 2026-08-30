@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/great-magician-01/callable/compare/v0.10.0...v1.0.0) (2026-08-30)
+
+
+### Miscellaneous Chores
+
+* release 1.0.0 ([905a9d3](https://github.com/great-magician-01/callable/commit/905a9d375966bf0a939c6adc1c8b48a8776d17da))
+
 ## [0.10.0](https://github.com/great-magician-01/callable/compare/v0.9.0...v0.10.0) (2026-08-30)
 
 
