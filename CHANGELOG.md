@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.10.0](https://github.com/great-magician-01/callable/compare/v0.9.0...v0.10.0) (2026-08-30)
+
+
+### Features
+
+* add model listing functionality and update documentation ([2cd34c6](https://github.com/great-magician-01/callable/commit/2cd34c65201029f36ab6b522fd2688962e8fee03))
+* add model listing functionality and update documentation ([abc2573](https://github.com/great-magician-01/callable/commit/abc25737a72e0326928cdc28e676f56eb240883b))
+* Enhance response handling to preserve unmodeled fields ([e9e99d6](https://github.com/great-magician-01/callable/commit/e9e99d63bd113595831c79471d1931c4609d6a9e))
+* Enhance response handling to preserve unmodeled fields ([5cb6318](https://github.com/great-magician-01/callable/commit/5cb6318f61aac06ce1d34f94ed6ae4be6a8988fc))
+
 ## [0.9.0](https://github.com/great-magician-01/callable/compare/v0.8.0...v0.9.0) (2026-08-30)
 
 
