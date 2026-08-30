@@ -32,6 +32,11 @@ type Request struct {
 	// Extra holds arbitrary top-level fields merged into the provider request
 	// body, as an escape hatch for provider-specific parameters.
 	Extra map[string]any
+	// Headers holds extra HTTP headers sent with the provider request, as a
+	// pass-through for gateway-specific metadata (tracing ids, tenant tags,
+	// ...). Applied after authentication and provider-level headers, so a
+	// same-named key wins.
+	Headers map[string]string
 }
 
 // NewRequest creates a request for the given messages.
@@ -99,5 +104,17 @@ func (r *Request) WithExtra(key string, value any) *Request {
 		r.Extra = map[string]any{}
 	}
 	r.Extra[key] = value
+	return r
+}
+
+// WithHeader adds an HTTP header to this request only (e.g. a per-call tracing
+// id a gateway requires passed through). Headers are applied after
+// authentication and provider-level headers, so a same-named key overrides
+// them — be careful not to clobber credentials.
+func (r *Request) WithHeader(key, value string) *Request {
+	if r.Headers == nil {
+		r.Headers = map[string]string{}
+	}
+	r.Headers[key] = value
 	return r
 }

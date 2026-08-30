@@ -25,6 +25,7 @@ type Client struct {
 	stop        []string
 	format      *model.ResponseFormat
 	extra       map[string]any
+	headers     map[string]string
 
 	requestHooks  []RequestHook
 	responseHooks []ResponseHook
@@ -85,6 +86,19 @@ func WithExtra(key string, value any) ClientOption {
 			c.extra = map[string]any{}
 		}
 		c.extra[key] = value
+	}
+}
+
+// WithHeader adds an HTTP header to every request this client sends (e.g. a
+// gateway tenant tag). Request-level Request.WithHeader wins on key
+// conflicts; the client-level map is copied per request, so later WithHeader
+// calls on the client do not affect in-flight requests.
+func WithHeader(key, value string) ClientOption {
+	return func(c *Client) {
+		if c.headers == nil {
+			c.headers = map[string]string{}
+		}
+		c.headers[key] = value
 	}
 }
 
@@ -207,6 +221,18 @@ func (c *Client) applyDefaults(req *model.Request) *model.Request {
 			merged[k] = v
 		}
 		out.Extra = merged
+	}
+	if len(c.headers) > 0 {
+		// Same treatment for headers: client-level defaults under
+		// request-level ones, merged into a fresh map.
+		merged := make(map[string]string, len(c.headers)+len(out.Headers))
+		for k, v := range c.headers {
+			merged[k] = v
+		}
+		for k, v := range out.Headers {
+			merged[k] = v
+		}
+		out.Headers = merged
 	}
 	return &out
 }

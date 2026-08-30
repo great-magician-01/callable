@@ -138,7 +138,7 @@ All Provider constructors accept `opts ...ProviderOption`:
 | Option | Signature | Description |
 |---|---|---|
 | `WithHTTPClient` | `WithHTTPClient(client *http.Client) ProviderOption` | Supply a custom `*http.Client` (proxy, TLS, timeouts, ...). Passing `nil` is ignored. |
-| `WithHeader` | `WithHeader(key, value string) ProviderOption` | Adds a header to every provider request. Applied **after** authentication, so it can override defaults like `Authorization`. |
+| `WithHeader` | `WithHeader(key, value string) ProviderOption` | Adds a header to every provider request. Applied **after** authentication, so it can override defaults like `Authorization`; a same-named key is in turn overridden by the request-level `Request.WithHeader`. |
 | `WithRetries` | `WithRetries(n int) ProviderOption` | How many times transient failures (network errors, 429, 5xx) are retried. Default 3; pass 0 to disable; negative values are clamped to 0. |
 | `WithRetryBackoff` | `WithRetryBackoff(delays ...time.Duration) ProviderOption` | Replaces the default retry wait schedule (3s/10s/30s): `delays[i]` is the wait before retry i+1; retries beyond the schedule reuse the last delay. Combine with `WithRetries`. |
 | `WithCompat` | `WithCompat(c Compat) ProviderOption` | Overrides the auto-detected endpoint dialect (see previous section). |
@@ -164,6 +164,7 @@ func NewClient(provider Provider, opts ...ClientOption) *Client
 | `WithTopP` | `WithTopP(v float64) ClientOption` | Default nucleus-sampling probability mass, see [Structured Output & Sampling](structured-output.md) |
 | `WithStopSequences` | `WithStopSequences(seq ...string) ClientOption` | Default stop sequences (unsupported by OpenAI Responses — ignored there), see above |
 | `WithResponseFormat` | `WithResponseFormat(f ResponseFormat) ClientOption` | Default output format constraint (structured output), see above |
+| `WithClientHeader` | `WithClientHeader(key, value string) ClientOption` | Adds an HTTP header to every request this client sends (including the Agent loop's internal calls); the request-level `Request.WithHeader` wins on key conflicts |
 | `WithRequestHook` | `WithRequestHook(hooks ...RequestHook) ClientOption` | Registers request hooks, invoked in order before every request is sent; see "Request/response hooks" below |
 | `WithResponseHook` | `WithResponseHook(hooks ...ResponseHook) ClientOption` | Registers response hooks, invoked in order after every call finishes; see "Request/response hooks" below |
 
@@ -289,7 +290,7 @@ Runnable examples live in `examples/quickstart` (picks a provider based on which
 - **Timeouts**: the default `http.Client` has no timeout, so manage call lifecycles with `context.WithTimeout` / `context.WithCancel`. Cancellation is graceful: the upstream connection closes immediately, and cancelling mid-stream returns a **non-nil partial result** with an error satisfying `errors.Is(err, context.Canceled)`.
 - **`Create` / `Stream` are single calls**: they do not run the tool loop. For the automatic "model → tools → model → ..." loop, use the [Agent Loop](agent.md) (`NewAgent` + `Run` / `RunStream`).
 - **Conversation history is your job**: `Create` / `Stream` are stateless; multi-turn conversations need the history passed into `NewRequest`, or use [Sessions](session.md) to maintain it automatically.
-- **`WithHeader` overrides auth headers**: custom headers are applied after authentication, so a same-named key overrides `Authorization` / `x-api-key`. Useful for gateway-specific headers, but be careful not to clobber authentication.
+- **Custom headers (pass-through) come in three levels**: provider-level `WithHeader` (every request from that provider) → client-level `WithClientHeader` (every request from that client, including Agent internal calls) → request-level `Request.WithHeader` (a single call, e.g. passing a per-call tracing id through). On key conflicts the later level wins, and all three are applied after authentication — a same-named key overrides `Authorization` / `x-api-key`. Useful for gateway-specific headers, but be careful not to clobber authentication.
 
 ## Next steps
 

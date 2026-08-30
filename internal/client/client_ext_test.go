@@ -240,3 +240,51 @@ func TestClientExtraMerge(t *testing.T) {
 		t.Errorf("shared = %v, want request-level value", got)
 	}
 }
+
+// TestClientHeaderMerge verifies client-level WithHeader lands on the wire
+// and request-level Request.WithHeader wins on conflicts, without mutating
+// the caller's request.
+func TestClientHeaderMerge(t *testing.T) {
+	var got []http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Header)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, ChatJSON("ok"))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := NewClient(provider.NewOpenAIProvider("k", srv.URL),
+		WithModel("m"),
+		WithHeader("X-Tenant", "acme"),
+		WithHeader("X-Shared", "client"),
+	)
+
+	req := NewRequest(User("hi"))
+	if _, err := client.Create(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if v := got[0].Get("X-Tenant"); v != "acme" {
+		t.Errorf("X-Tenant = %q, want acme", v)
+	}
+	if v := got[0].Get("X-Shared"); v != "client" {
+		t.Errorf("X-Shared = %q, want client", v)
+	}
+	if req.Headers != nil {
+		t.Errorf("caller request mutated: %v", req.Headers)
+	}
+
+	// Request-level wins on conflicts; client-level defaults still apply.
+	if _, err := client.Create(context.Background(),
+		NewRequest(User("hi")).WithHeader("X-Shared", "request").WithHeader("X-Request-Id", "r-1")); err != nil {
+		t.Fatal(err)
+	}
+	if v := got[1].Get("X-Shared"); v != "request" {
+		t.Errorf("X-Shared = %q, want request-level value", v)
+	}
+	if v := got[1].Get("X-Tenant"); v != "acme" {
+		t.Errorf("X-Tenant = %q, want client-level default kept", v)
+	}
+	if v := got[1].Get("X-Request-Id"); v != "r-1" {
+		t.Errorf("X-Request-Id = %q, want r-1", v)
+	}
+}

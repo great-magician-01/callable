@@ -341,7 +341,7 @@ func (p *AnthropicProvider) Create(ctx context.Context, req *model.Request) (*mo
 	if err != nil {
 		return nil, err
 	}
-	body, err := p.api.postJSON(ctx, p.endpoint(), payload)
+	body, err := p.api.postJSON(ctx, p.endpoint(), payload, req.Headers)
 	if err != nil {
 		return nil, err
 	}
@@ -442,7 +442,7 @@ func (p *AnthropicProvider) Stream(ctx context.Context, req *model.Request, onEv
 	if err != nil {
 		return nil, err
 	}
-	body, err := p.api.postJSONStream(ctx, p.endpoint(), payload)
+	body, err := p.api.postJSONStream(ctx, p.endpoint(), payload, req.Headers)
 	if err != nil {
 		return nil, err
 	}

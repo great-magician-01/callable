@@ -287,6 +287,7 @@ callable.NewOpenAIProvider(key, callable.QwenURL)                 // Qwen，方�
 - 工具执行错误 → `IsError` 工具结果回传给模型（可自行重试换路），不中断 loop
 - `*callable.MaxTurnsError`：附带 `Partial *AgentResult`
 - 请求级逃生舱：`NewRequest(...).WithExtra("key", value)` 透传任意顶层字段
+- 请求头穿透：`NewRequest(...).WithHeader(k, v)` 按调用透传自定义 HTTP 头；每个请求都带则用 Client 级 `WithClientHeader` 或 Provider 级 `WithHeader`
 
 ## 取消与超时（优雅停止）
 
