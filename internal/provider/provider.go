@@ -202,10 +202,34 @@ func (a *httpAPI) postJSON(ctx context.Context, endpoint string, payload []byte,
 	return body, nil
 }
 
+// getJSON issues a GET request and returns the response body. GETs are
+// idempotent, so they share the retry/backoff machinery with POSTs. Non-2xx
+// responses are returned as *APIError after exhausting retries.
+func (a *httpAPI) getJSON(ctx context.Context, endpoint string, headers map[string]string) ([]byte, error) {
+	resp, err := a.do(ctx, http.MethodGet, endpoint, nil, false, headers)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		if ctx.Err() != nil {
+			// Canceled or timed out while reading: surface the context
+			// error, not the transport detail.
+			return nil, ctx.Err()
+		}
+		return nil, a.transportError(fmt.Errorf("read response: %w", err))
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, newAPIError(a.name, resp.StatusCode, body)
+	}
+	return body, nil
+}
+
 // postJSONStream sends a JSON payload and, on success, returns the response
 // body for incremental SSE reading.
 func (a *httpAPI) postJSONStream(ctx context.Context, endpoint string, payload []byte, headers map[string]string) (io.ReadCloser, error) {
-	resp, err := a.post(ctx, endpoint, payload, true, headers)
+	resp, err := a.do(ctx, http.MethodPost, endpoint, payload, true, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -218,6 +242,10 @@ func (a *httpAPI) postJSONStream(ctx context.Context, endpoint string, payload [
 }
 
 func (a *httpAPI) post(ctx context.Context, endpoint string, payload []byte, stream bool, headers map[string]string) (*http.Response, error) {
+	return a.do(ctx, http.MethodPost, endpoint, payload, stream, headers)
+}
+
+func (a *httpAPI) do(ctx context.Context, method, endpoint string, payload []byte, stream bool, headers map[string]string) (*http.Response, error) {
 	fullURL := a.cfg.baseURL + endpoint
 	attempts := a.cfg.maxRetries + 1
 	var lastErr error
@@ -227,7 +255,7 @@ func (a *httpAPI) post(ctx context.Context, endpoint string, payload []byte, str
 				return nil, err
 			}
 		}
-		req, err := a.newRequest(ctx, http.MethodPost, fullURL, payload, headers)
+		req, err := a.newRequest(ctx, method, fullURL, payload, headers)
 		if err != nil {
 			return nil, err
 		}

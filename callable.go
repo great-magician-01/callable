@@ -345,6 +345,14 @@ type (
 	OpenAIResponsesProvider = provider.OpenAIResponsesProvider
 	// AnthropicProvider talks the Anthropic Messages format.
 	AnthropicProvider = provider.AnthropicProvider
+
+	// ModelInfo describes one model from a provider's model listing.
+	ModelInfo = provider.ModelInfo
+	// ModelLister is implemented by providers that can list the models
+	// available at their endpoint (GET /models); all three built-in
+	// providers implement it. Client.ListModels is the convenient entry
+	// point.
+	ModelLister = provider.ModelLister
 )
 
 // Endpoint dialects (auto-detected from the base URL, or set with WithCompat).

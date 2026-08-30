@@ -7,6 +7,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 
 	model "github.com/great-magician-01/callable/internal/model"
 	provider "github.com/great-magician-01/callable/internal/provider"
@@ -155,6 +156,18 @@ func Derive(c *Client, modelID string) *Client {
 	cp := *c
 	cp.model = modelID
 	return &cp
+}
+
+// ListModels returns the models available at the provider's endpoint
+// (GET /models). It reports an error when the provider does not implement
+// provider.ModelLister. Request/response hooks do not fire: this is not a
+// model call.
+func (c *Client) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
+	lister, ok := c.provider.(provider.ModelLister)
+	if !ok {
+		return nil, fmt.Errorf("callable: provider %q does not support listing models", c.provider.Name())
+	}
+	return lister.ListModels(ctx)
 }
 
 // Create performs a single non-streaming model call.

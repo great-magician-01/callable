@@ -205,6 +205,24 @@ client := callable.NewAnthropicClient(apiKey, callable.AnthropicURL, "claude-son
 - 两个选项都可传入多个钩子，按注册顺序执行；钩子不应修改请求或响应。
 - Agent 的每次内部模型调用同样经过钩子——loop 跑了 N 轮就触发 N 次。
 
+### 列出可用模型（GET /models）
+
+`Client.ListModels` 封装了 provider 的模型列表接口，返回统一的 `ModelInfo`：
+
+```go
+models, err := client.ListModels(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+for _, m := range models {
+    fmt.Println(m.ID, m.DisplayName, m.OwnedBy, m.Created)
+}
+```
+
+- OpenAI 兼容端点请求 `GET {baseURL}/models`；Anthropic 请求 `GET {baseURL}/v1/models`，分页自动取全。
+- `DisplayName` 仅 Anthropic 返回，`OwnedBy` 仅 OpenAI 兼容端点返回，`Created` 在端点提供时解析为 `time.Time`。
+- 三种内置 provider 都实现了 `ModelLister` 接口；自定义 provider 未实现时 `ListModels` 返回错误。这不是模型调用，不触发请求/响应钩子。
+
 ## 最小调用示例
 
 ### Create（非流式）
