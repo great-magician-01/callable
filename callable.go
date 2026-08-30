@@ -63,6 +63,10 @@ type (
 	ToolCallPart = model.ToolCallPart
 	// ToolResultPart carries the output of a tool execution back to the model.
 	ToolResultPart = model.ToolResultPart
+	// RawPart preserves a provider content block the unified model does not
+	// understand, in its original wire format; Anthropic and OpenAI
+	// Responses replay it verbatim on the next request.
+	RawPart = model.RawPart
 )
 
 // Message roles.

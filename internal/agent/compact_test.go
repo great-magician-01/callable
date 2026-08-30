@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -68,7 +69,7 @@ func TestSessionDefaults(t *testing.T) {
 	if sess.autoCompactThreshold != DefaultAutoCompactThreshold {
 		t.Errorf("threshold = %v", sess.autoCompactThreshold)
 	}
-	if got := sess.ContextUsage(); got != (Usage{}) {
+	if got := sess.ContextUsage(); !reflect.DeepEqual(got, Usage{}) {
 		t.Errorf("context usage = %+v before first Ask", got)
 	}
 }
@@ -151,7 +152,7 @@ func TestSessionAutoCompactTriggers(t *testing.T) {
 		t.Errorf("compacted history text = %q", text)
 	}
 	// Context fill is reset until the next Ask measures it again.
-	if got := sess.ContextUsage(); got != (Usage{}) {
+	if got := sess.ContextUsage(); !reflect.DeepEqual(got, Usage{}) {
 		t.Errorf("context usage after compact = %+v", got)
 	}
 }
@@ -221,7 +222,7 @@ func TestSessionManualCompact(t *testing.T) {
 	if len(history) != 1 || !strings.Contains(history[0].Text(), summary) {
 		t.Errorf("history after compact = %+v", history)
 	}
-	if got := sess.ContextUsage(); got != (Usage{}) {
+	if got := sess.ContextUsage(); !reflect.DeepEqual(got, Usage{}) {
 		t.Errorf("context usage after compact = %+v", got)
 	}
 }
@@ -260,7 +261,7 @@ func TestSessionResetClearsContextUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	sess.Reset()
-	if got := sess.ContextUsage(); got != (Usage{}) {
+	if got := sess.ContextUsage(); !reflect.DeepEqual(got, Usage{}) {
 		t.Errorf("context usage after reset = %+v", got)
 	}
 	if got := sess.ContextFillRatio(); got != 0 {

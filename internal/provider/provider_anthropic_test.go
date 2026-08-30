@@ -260,7 +260,7 @@ func TestAntStreamAccumulation(t *testing.T) {
 			ID: b.ID, Name: b.Name, Input: json.RawMessage(input),
 		}
 	}
-	resp := assembleAntMessage(blocks, mapAntStopReason(state.stopReason), state.usage.toUsage())
+	resp := assembleAntMessage(blocks, mapAntStopReason(state.stopReason), state.usage.toUsage(), nil)
 	if got := resp.Message.Thinking(); got != "ponder" {
 		t.Errorf("thinking = %q", got)
 	}
@@ -294,5 +294,189 @@ func TestAntConsecutiveUserMessagesMerged(t *testing.T) {
 	blocks := AsSlice(t, AsMap(t, msgs[0])["content"])
 	if len(blocks) != 2 {
 		t.Errorf("blocks = %d, want 2", len(blocks))
+	}
+}
+
+func TestAntParseResponseUnknownBlocks(t *testing.T) {
+	p := antProvider()
+	fixture := `{
+		"id": "msg_1",
+		"model": "claude-x",
+		"content": [
+			{"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {"query": "news"}},
+			{"type": "web_search_tool_result", "tool_use_id": "srvtoolu_1", "content": [{"type": "web_search_result", "url": "https://x", "title": "X"}]},
+			{"type": "text", "text": "Here is the news."},
+			{"type": "redacted_thinking", "data": "EoreBkAI"}
+		],
+		"stop_reason": "end_turn",
+		"usage": {"input_tokens": 5, "output_tokens": 7, "server_tool_use": {"web_search_requests": 1}}
+	}`
+	resp, err := p.parseResponse([]byte(fixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Text != "Here is the news." {
+		t.Errorf("text = %q", resp.Text)
+	}
+	var raws []RawPart
+	for _, part := range resp.Message.Parts {
+		if rp, ok := part.(RawPart); ok {
+			raws = append(raws, rp)
+		}
+	}
+	if len(raws) != 3 {
+		t.Fatalf("raw parts = %d, want 3: %+v", len(raws), resp.Message.Parts)
+	}
+	if raws[0].BlockType != "server_tool_use" || raws[0].Provider != "anthropic" {
+		t.Errorf("raw part 0 = %+v", raws[0])
+	}
+	// The block is preserved verbatim, in its original format.
+	blk := DecodeMap(t, raws[0].Raw)
+	if AsString(t, blk["name"]) != "web_search" {
+		t.Errorf("raw name = %v", blk["name"])
+	}
+	if AsString(t, AsMap(t, blk["input"])["query"]) != "news" {
+		t.Errorf("raw input = %v", blk["input"])
+	}
+	if raws[2].BlockType != "redacted_thinking" {
+		t.Errorf("raw part 2 = %+v", raws[2])
+	}
+	if AsString(t, DecodeMap(t, raws[2].Raw)["data"]) != "EoreBkAI" {
+		t.Errorf("redacted data = %s", raws[2].Raw)
+	}
+	// Envelope fields the unified model does not map survive verbatim.
+	if string(resp.Extra["id"]) != `"msg_1"` || string(resp.Extra["model"]) != `"claude-x"` {
+		t.Errorf("extra = %v", resp.Extra)
+	}
+	if _, ok := resp.Extra["content"]; ok {
+		t.Error("known field content must not land in Extra")
+	}
+	// Usage fields beyond the schema survive too.
+	if string(resp.Extra["usage"]) != "" {
+		t.Error("usage must not land in Extra")
+	}
+	if _, ok := resp.Usage.Extra["server_tool_use"]; !ok {
+		t.Errorf("usage extra = %v", resp.Usage.Extra)
+	}
+}
+
+func TestAntStreamUnknownBlock(t *testing.T) {
+	events := []string{
+		`{"type":"message_start","message":{"id":"msg_9","model":"claude-x","usage":{"input_tokens":3,"output_tokens":1}}}`,
+		`{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{}}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"news\"}"}}`,
+		`{"type":"content_block_stop","index":0}`,
+		`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":9}}`,
+		`{"type":"message_stop"}`,
+	}
+
+	state := &antStreamState{}
+	for _, data := range events {
+		ev := sseMessage{event: "x", data: data}
+		if err := state.processEvent(ev, nil); err != nil {
+			if errors.Is(err, errStopScan) {
+				break
+			}
+			t.Fatalf("event %s: %v", data, err)
+		}
+	}
+	resp := state.assemble()
+
+	if len(resp.Message.Parts) != 1 {
+		t.Fatalf("parts = %+v", resp.Message.Parts)
+	}
+	rp, ok := resp.Message.Parts[0].(RawPart)
+	if !ok {
+		t.Fatalf("part type = %T", resp.Message.Parts[0])
+	}
+	if rp.BlockType != "server_tool_use" || rp.Provider != "anthropic" {
+		t.Errorf("raw part = %+v", rp)
+	}
+	// The streamed input_json delta is folded back into the raw block.
+	blk := DecodeMap(t, rp.Raw)
+	if AsString(t, blk["id"]) != "srvtoolu_1" {
+		t.Errorf("raw id = %v", blk["id"])
+	}
+	if AsString(t, AsMap(t, blk["input"])["query"]) != "news" {
+		t.Errorf("raw input = %s", rp.Raw)
+	}
+	// message_start metadata survives on Response.Extra.
+	if string(resp.Extra["id"]) != `"msg_9"` || string(resp.Extra["model"]) != `"claude-x"` {
+		t.Errorf("extra = %v", resp.Extra)
+	}
+	if _, ok := resp.Extra["usage"]; ok {
+		t.Error("known field usage must not land in Extra")
+	}
+}
+
+func TestAntRawPartReplay(t *testing.T) {
+	p := antProvider()
+	raw := json.RawMessage(`{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"news"}}`)
+	body, err := p.buildPayload(NewRequest(
+		User("search news"),
+		Assistant(TextPart{Text: "checking"}, RawPart{Provider: "anthropic", BlockType: "server_tool_use", Raw: raw}),
+	).WithModel("claude-x"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := AsSlice(t, DecodeMap(t, body)["messages"])
+	if len(msgs) != 2 {
+		t.Fatalf("messages = %d, want 2", len(msgs))
+	}
+	content := AsSlice(t, AsMap(t, msgs[1])["content"])
+	if len(content) != 2 {
+		t.Fatalf("assistant blocks = %d, want 2", len(content))
+	}
+	blk := AsMap(t, content[1])
+	if AsString(t, blk["type"]) != "server_tool_use" {
+		t.Errorf("replayed block = %v", blk)
+	}
+	if AsString(t, AsMap(t, blk["input"])["query"]) != "news" {
+		t.Errorf("replayed input = %v", blk["input"])
+	}
+
+	// A RawPart from another provider's wire format is not replayed.
+	body, err = p.buildPayload(NewRequest(
+		User("hi"),
+		Assistant(RawPart{Provider: "openai-responses", BlockType: "x", Raw: json.RawMessage(`{"type":"x"}`)}),
+	).WithModel("claude-x"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs = AsSlice(t, DecodeMap(t, body)["messages"])
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %d, want 1 (foreign RawPart skipped)", len(msgs))
+	}
+}
+
+func TestAntStreamGappedBlockIndex(t *testing.T) {
+	// A content_block_start at index 1 with no block at index 0 must not
+	// produce a placeholder RawPart for the gap.
+	events := []string{
+		`{"type":"message_start","message":{"usage":{"input_tokens":1,"output_tokens":1}}}`,
+		`{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`,
+		`{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"hi"}}`,
+		`{"type":"content_block_stop","index":1}`,
+		`{"type":"message_stop"}`,
+	}
+	state := &antStreamState{}
+	for _, data := range events {
+		ev := sseMessage{event: "x", data: data}
+		if err := state.processEvent(ev, nil); err != nil {
+			if errors.Is(err, errStopScan) {
+				break
+			}
+			t.Fatalf("event %s: %v", data, err)
+		}
+	}
+	resp := state.assemble()
+	if resp.Text != "hi" {
+		t.Errorf("text = %q", resp.Text)
+	}
+	if len(resp.Message.Parts) != 1 {
+		t.Fatalf("parts = %+v, want exactly the text part", resp.Message.Parts)
+	}
+	if _, ok := resp.Message.Parts[0].(TextPart); !ok {
+		t.Errorf("part 0 type = %T", resp.Message.Parts[0])
 	}
 }

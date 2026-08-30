@@ -224,6 +224,12 @@ func (p *OpenAIResponsesProvider) buildInput(messages []model.Message) (string, 
 						CallID: v.ToolCallID,
 						Output: v.Content,
 					})
+				case model.RawPart:
+					// Items the unified model does not map round-trip in
+					// their original wire format.
+					if v.Provider == p.Name() {
+						input = append(input, json.RawMessage(v.Raw))
+					}
 				}
 			}
 			if text.Len() > 0 {
@@ -287,6 +293,23 @@ type respUsageBody struct {
 	OutputTokensDetails *struct {
 		ReasoningTokens int `json:"reasoning_tokens"`
 	} `json:"output_tokens_details"`
+	// Extra preserves usage fields the unified model does not map, in
+	// original JSON form.
+	Extra map[string]json.RawMessage
+}
+
+// UnmarshalJSON captures fields beyond the known usage schema into Extra.
+func (u *respUsageBody) UnmarshalJSON(data []byte) error {
+	type alias respUsageBody
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*u = respUsageBody(a)
+	u.Extra = extraFields(data,
+		"input_tokens", "output_tokens",
+		"input_tokens_details", "output_tokens_details")
+	return nil
 }
 
 func (u *respUsageBody) toUsage() model.Usage {
@@ -299,6 +322,7 @@ func (u *respUsageBody) toUsage() model.Usage {
 		// InputTokens already includes cached tokens, so it is the full
 		// context footprint.
 		ContextTokens: u.InputTokens,
+		Extra:         u.Extra,
 	}
 	if u.InputTokensDetails != nil {
 		usage.CacheReadTokens = u.InputTokensDetails.CachedTokens
@@ -348,19 +372,25 @@ func (p *OpenAIResponsesProvider) Create(ctx context.Context, req *model.Request
 			Body:     string(body),
 		}
 	}
-	return p.assemble(&env)
+	return p.assemble(&env, extraFields(body, respEnvelopeKnownFields...))
 }
 
+// respEnvelopeKnownFields are the top-level response fields the unified model
+// consumes; anything else on the response object (including the response id)
+// is preserved on Response.Extra.
+var respEnvelopeKnownFields = []string{"status", "output", "usage", "error", "incomplete_details"}
+
 // assemble converts a response envelope into the unified Response, attaching
-// the raw output items to the assistant message for round-trip replay.
-func (p *OpenAIResponsesProvider) assemble(env *respEnvelope) (*model.Response, error) {
-	resp := &model.Response{Usage: env.Usage.toUsage()}
+// the raw output items to the assistant message for round-trip replay. extra
+// carries the envelope's unmodeled top-level fields.
+func (p *OpenAIResponsesProvider) assemble(env *respEnvelope, extra map[string]json.RawMessage) (*model.Response, error) {
+	resp := &model.Response{Usage: env.Usage.toUsage(), Extra: extra}
 	assistant := model.Message{Role: model.RoleAssistant}
 
 	for _, raw := range env.Output {
 		var item respOutputItem
 		if err := json.Unmarshal(raw, &item); err != nil {
-			continue // tolerate unknown item types
+			continue // tolerate unparseable items
 		}
 		switch item.Type {
 		case "reasoning":
@@ -389,6 +419,15 @@ func (p *OpenAIResponsesProvider) assemble(env *respEnvelope) (*model.Response, 
 				ID:        item.CallID,
 				Name:      item.Name,
 				Arguments: compactJSON(item.Arguments),
+			})
+		default:
+			// Item types the unified model does not map (hosted tool calls,
+			// gateway extensions, new API items) stay visible; the raw
+			// output replay below already round-trips them verbatim.
+			assistant.Parts = append(assistant.Parts, model.RawPart{
+				Provider:  p.Name(),
+				BlockType: item.Type,
+				Raw:       raw,
 			})
 		}
 	}
@@ -453,7 +492,7 @@ func (p *OpenAIResponsesProvider) Stream(ctx context.Context, req *model.Request
 		if cerr := ctx.Err(); cerr != nil {
 			// Graceful stop: assemble whatever completed output items were
 			// received and return them alongside the context error.
-			resp, aerr := p.assemble(&respEnvelope{Status: "incomplete", Output: state.items})
+			resp, aerr := p.assemble(&respEnvelope{Status: "incomplete", Output: state.items}, nil)
 			if aerr != nil {
 				return nil, cerr
 			}
@@ -470,7 +509,7 @@ func (p *OpenAIResponsesProvider) Stream(ctx context.Context, req *model.Request
 	// Stream ended without response.completed; fall back to accumulated
 	// output_item.done items.
 	env := &respEnvelope{Status: "completed", Output: state.items}
-	resp, err := p.assemble(env)
+	resp, err := p.assemble(env, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -536,7 +575,7 @@ func (p *OpenAIResponsesProvider) processEvent(data string, state *respStreamSta
 		if env.Status == "" {
 			env.Status = strings.TrimPrefix(ev.Type, "response.")
 		}
-		return p.assemble(&env)
+		return p.assemble(&env, extraFields(ev.Response, respEnvelopeKnownFields...))
 	case "response.failed":
 		var env respEnvelope
 		_ = json.Unmarshal(ev.Response, &env)

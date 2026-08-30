@@ -101,3 +101,54 @@ func TestMessageJSONRoundTrip(t *testing.T) {
 		t.Errorf("provider extra = %s", extra)
 	}
 }
+
+func TestMessageJSONRoundTripRawPartAndExtra(t *testing.T) {
+	m := Message{
+		Role: RoleAssistant,
+		Parts: []Part{
+			TextPart{Text: "hi"},
+			RawPart{
+				Provider:  "anthropic",
+				BlockType: "server_tool_use",
+				Raw:       json.RawMessage(`{"type":"server_tool_use","id":"srv_1","name":"web_search"}`),
+			},
+		},
+		Extra: map[string]json.RawMessage{
+			"annotations": json.RawMessage(`[{"url":"https://x"}]`),
+		},
+	}
+
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var back Message
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(back.Parts) != 2 {
+		t.Fatalf("parts = %d, want 2", len(back.Parts))
+	}
+	rp, ok := back.Parts[1].(RawPart)
+	if !ok {
+		t.Fatalf("part 1 type = %T, want RawPart", back.Parts[1])
+	}
+	if rp.Provider != "anthropic" || rp.BlockType != "server_tool_use" {
+		t.Errorf("raw part = %+v", rp)
+	}
+	if string(rp.Raw) != `{"type":"server_tool_use","id":"srv_1","name":"web_search"}` {
+		t.Errorf("raw = %s", rp.Raw)
+	}
+	if string(back.Extra["annotations"]) != `[{"url":"https://x"}]` {
+		t.Errorf("extra = %v", back.Extra)
+	}
+
+	// The discriminator survives a standalone UnmarshalPart too.
+	p, err := UnmarshalPart(json.RawMessage(`{"type":"raw","provider":"anthropic","block_type":"x","raw":{"type":"x"}}`))
+	if err != nil {
+		t.Fatalf("UnmarshalPart: %v", err)
+	}
+	if rp, ok := p.(RawPart); !ok || rp.BlockType != "x" {
+		t.Errorf("part = %+v", p)
+	}
+}

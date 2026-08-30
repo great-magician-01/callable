@@ -21,6 +21,7 @@ callable has exactly one message model internally: `Message{Role, Parts}`. Wheth
 type Message struct {
     Role  Role
     Parts []Part
+    Extra map[string]json.RawMessage // unrecognized fields of the response message object (see "Preserving unrecognized data")
     // plus unexported per-provider round-trip data (see "History fidelity")
 }
 ```
@@ -38,7 +39,7 @@ func (m Message) ToolResultsOf() []ToolResultPart // all ToolResultParts, in ord
 
 ## The sealed Part family
 
-`Part` is a sealed interface — it has an unexported method, so **you cannot implement custom Part types**. There are exactly five concrete types, each serialized to JSON with a `"type"` discriminator.
+`Part` is a sealed interface — it has an unexported method, so **you cannot implement custom Part types**. There are exactly six concrete types, each serialized to JSON with a `"type"` discriminator.
 
 ### TextPart
 
@@ -113,6 +114,22 @@ type ToolResultPart struct {
 - Every `ToolCallPart` in history must have a matching `ToolResultPart` (in the same message or in the following `RoleTool` message), otherwise some APIs — Anthropic in particular — reject the request outright. The agent loop guarantees pairing, synthesizing `IsError` results for calls skipped due to cancellation.
 - `IsError=true` does not break the agent loop — the error is fed back to the model, which can retry or pick another approach. In the Responses format the error output is prefixed with `"Error: "`.
 
+### RawPart
+
+A provider content block the unified model does not understand, preserved as its **original wire JSON**. Typical sources: Anthropic server-tool blocks (`server_tool_use`, `web_search_tool_result`), `redacted_thinking`, custom blocks injected by gateways/relays, and block types added by a provider after this library version (unknown Responses output items likewise).
+
+```go
+type RawPart struct {
+    Provider  string          `json:"provider,omitempty"` // wire format owner (Provider.Name(), e.g. "anthropic")
+    BlockType string          `json:"block_type"`         // the block's own type on the wire (e.g. "server_tool_use")
+    Raw       json.RawMessage `json:"raw"`                // the block's complete original JSON
+}
+```
+
+- Filled automatically when the provider parses a response; never construct it by hand.
+- **Replay**: when the message goes back to the same provider (Anthropic / OpenAI Responses), a RawPart replays its `Raw` verbatim, so unknown blocks survive multi-turn conversations; other providers ignore it.
+- JSON form: `{"type":"raw","provider":"anthropic","block_type":"server_tool_use","raw":{...}}` — persists with the rest of the message history.
+
 ## Message constructors
 
 ```go
@@ -178,6 +195,24 @@ Behavior notes:
 - `providerExtra` is keyed by `Provider.Name()` and only takes effect when the history is sent back to the **same provider**; switching providers ignores the extras (unified fields like `ThinkingPart.Text` are still converted on a best-effort basis).
 - Responses reasoning items **cannot be reconstructed** from a `ThinkingPart` — they rely on the verbatim payload in `providerExtra`. If you hand-build assistant history for the Responses API, reasoning continuity is lost (text and tool calls are unaffected).
 - Advanced uses (moving history across processes, auditing) can read/write `SetProviderExtra` / `ProviderExtra` directly; the `provider` argument is a `Provider.Name()` value, e.g. `"openai-responses"`.
+
+## Preserving unrecognized data (Extra and RawPart)
+
+Some gateways/relays piggyback custom fields onto responses, and providers add fields or content blocks over time. Response parsing follows a "lose nothing" rule: **every field and block the unified model does not map is preserved as its original JSON**, in four places:
+
+| Location | What is preserved |
+|---|---|
+| `Response.Extra map[string]json.RawMessage` | unmapped top-level response fields (e.g. `id`, `created`, `model`, gateway traces, future fields) |
+| `Message.Extra map[string]json.RawMessage` | unmapped fields of the assistant message object (e.g. Chat Completions' `annotations`, `refusal`); informational only, never sent back |
+| `Usage.Extra map[string]json.RawMessage` | unmapped usage accounting fields (e.g. `total_tokens`, `server_tool_use`); on `Usage.Add` the later turn wins per key |
+| `RawPart` (previous section) | unrecognized content blocks / output items, kept verbatim |
+
+Behavior notes:
+
+- Values are **raw JSON fragments** (`json.RawMessage`), including any unknown substructure inside them.
+- Streaming matches one-shot behavior: Chat Completions streams merge unknown top-level chunk fields (later chunks win); Anthropic streams keep the unknown block's `content_block_start` payload and fold `input_json_delta` increments back into its `input` field.
+- `Extra` never affects request construction — use the request-level `WithExtra` escape hatch for that (see [Error Handling](errors.md)).
+- Attach `WithResponseHook` to observe the full `Response` (including `Extra`) of every call.
 
 ## JSON serialization and persistence
 
@@ -292,4 +327,4 @@ func main() {
 - **Every tool_call needs a paired tool_result**: see ToolResultPart above. The agent loop synthesizes pairs on cancellation/timeout; when building history by hand, pairing is your responsibility.
 - `Part` is a sealed interface and cannot be extended; `User`/`Assistant` panic on unknown argument types.
 - `ImagePart` local files are read at send time — serialized history stores the path reference (`path`), which may be invalid after restoring on another machine. Use `ImageBytes` if history must move across machines (the bytes serialize with the JSON).
-- The message model deliberately excludes provider-specific concepts (cache_control, server-side tools, ...). Use the request-level `WithExtra` escape hatch instead — see [Error Handling](errors.md).
+- The message model deliberately excludes provider-specific concepts (cache_control, server-side tools, ...). When such data shows up in a response it is preserved verbatim via `RawPart` / `Extra` (see "Preserving unrecognized data"); for the request side use the request-level `WithExtra` escape hatch — see [Error Handling](errors.md).

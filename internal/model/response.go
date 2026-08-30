@@ -42,9 +42,14 @@ type Usage struct {
 	// Anthropic it is input + cache-read + cache-creation tokens. Sessions
 	// use it to measure context fill.
 	ContextTokens int `json:"context_tokens,omitempty"`
+	// Extra preserves usage fields the unified model does not map — new
+	// provider accounting fields or gateway extensions — keyed by field name
+	// in their original JSON form.
+	Extra map[string]json.RawMessage `json:"extra,omitempty"`
 }
 
-// Add accumulates usage from another turn (used by the agent loop).
+// Add accumulates usage from another turn (used by the agent loop). Unmodeled
+// Extra fields merge with the later turn's value winning per key.
 func (u *Usage) Add(o Usage) {
 	u.InputTokens += o.InputTokens
 	u.OutputTokens += o.OutputTokens
@@ -52,6 +57,12 @@ func (u *Usage) Add(o Usage) {
 	u.CacheReadTokens += o.CacheReadTokens
 	u.CacheWriteTokens += o.CacheWriteTokens
 	u.ContextTokens += o.ContextTokens
+	for k, v := range o.Extra {
+		if u.Extra == nil {
+			u.Extra = map[string]json.RawMessage{}
+		}
+		u.Extra[k] = v
+	}
 }
 
 // Response is a completed model turn in the unified model.
@@ -67,6 +78,11 @@ type Response struct {
 	StopReason StopReason
 	// Usage reports token consumption for this turn.
 	Usage Usage
+	// Extra preserves top-level response fields the unified model does not
+	// map — wire metadata such as id/model/created, gateway additions, or
+	// provider fields added after this library version — keyed by field name
+	// in their original JSON form.
+	Extra map[string]json.RawMessage
 }
 
 // DecodeJSON unmarshals Text into v. It is the companion of structured

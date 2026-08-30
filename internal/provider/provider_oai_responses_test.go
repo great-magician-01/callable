@@ -181,7 +181,7 @@ func TestResponsesAssemble(t *testing.T) {
 			}{ReasoningTokens: 4},
 		},
 	}
-	resp, err := p.assemble(env)
+	resp, err := p.assemble(env, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestResponsesAssembleIncomplete(t *testing.T) {
 			json.RawMessage(`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"trunc"}]}`),
 		},
 	}
-	resp, err := p.assemble(env)
+	resp, err := p.assemble(env, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,5 +296,99 @@ func TestResponsesStream(t *testing.T) {
 	}
 	if !strings.Contains(bodies[0], `"stream":true`) {
 		t.Errorf("stream flag not set")
+	}
+}
+
+func TestResponsesUnknownItemsPreserved(t *testing.T) {
+	p := responsesProvider()
+	env := &respEnvelope{
+		Status: "completed",
+		Output: []json.RawMessage{
+			json.RawMessage(`{"type":"web_search_call","id":"ws_1","status":"completed"}`),
+			json.RawMessage(`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}`),
+		},
+	}
+	resp, err := p.assemble(env, map[string]json.RawMessage{"custom_field": json.RawMessage(`1`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Text != "done" {
+		t.Errorf("text = %q", resp.Text)
+	}
+	// The unknown item stays visible as a RawPart with its original JSON.
+	rp, ok := resp.Message.Parts[0].(RawPart)
+	if !ok {
+		t.Fatalf("part 0 type = %T", resp.Message.Parts[0])
+	}
+	if rp.BlockType != "web_search_call" || rp.Provider != "openai-responses" {
+		t.Errorf("raw part = %+v", rp)
+	}
+	if AsString(t, DecodeMap(t, rp.Raw)["id"]) != "ws_1" {
+		t.Errorf("raw = %s", rp.Raw)
+	}
+	// ... and it still round-trips via the provider payload replay.
+	if extra := resp.Message.ProviderExtra("openai-responses"); !strings.Contains(string(extra), "web_search_call") {
+		t.Errorf("provider extra = %s", extra)
+	}
+	if string(resp.Extra["custom_field"]) != `1` {
+		t.Errorf("custom_field = %s", resp.Extra["custom_field"])
+	}
+}
+
+func TestResponsesCreatePreservesUnknownFields(t *testing.T) {
+	body := `{"id":"resp_1","status":"completed","future_field":{"x":1},` +
+		`"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}],` +
+		`"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}`
+	server := NewMockJSONServer(t, []string{body}, nil)
+	p := NewOpenAIResponsesProvider("k", server.URL)
+	resp, err := p.Create(context.Background(), NewRequest(User("hi")).WithModel("gpt-x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(resp.Extra["future_field"]) != `{"x":1}` {
+		t.Errorf("future_field = %s", resp.Extra["future_field"])
+	}
+	if string(resp.Extra["id"]) != `"resp_1"` {
+		t.Errorf("id = %s", resp.Extra["id"])
+	}
+	if _, ok := resp.Extra["output"]; ok {
+		t.Error("known field output must not land in Extra")
+	}
+	if string(resp.Usage.Extra["total_tokens"]) != `4` {
+		t.Errorf("total_tokens = %s", resp.Usage.Extra["total_tokens"])
+	}
+}
+
+func TestResponsesRawPartReplay(t *testing.T) {
+	p := responsesProvider()
+	raw := json.RawMessage(`{"type":"custom_item","id":"ci_1","payload":{"a":1}}`)
+	_, input, err := p.buildInput([]Message{
+		User("hi"),
+		Assistant(RawPart{Provider: "openai-responses", BlockType: "custom_item", Raw: raw}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := itemsToMaps(t, input)
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2", len(items))
+	}
+	if AsString(t, AsMap(t, items[1])["type"]) != "custom_item" {
+		t.Errorf("replayed item = %v", items[1])
+	}
+	if AsFloat(t, AsMap(t, AsMap(t, items[1])["payload"])["a"]) != 1 {
+		t.Errorf("replayed payload = %v", items[1])
+	}
+
+	// A RawPart from another provider's wire format is not replayed.
+	_, input, err = p.buildInput([]Message{
+		User("hi"),
+		Assistant(RawPart{Provider: "anthropic", BlockType: "x", Raw: json.RawMessage(`{"type":"x"}`)}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if items := itemsToMaps(t, input); len(items) != 1 {
+		t.Fatalf("items = %d, want 1 (foreign RawPart skipped)", len(items))
 	}
 }
