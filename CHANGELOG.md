@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/great-magician-01/callable/compare/v1.0.0...v1.1.0) (2026-10-24)
+
+
+### Features
+
+* switch models mid-conversation per session ([a60948d](https://github.com/great-magician-01/callable/commit/a60948d537bb74c80dfe2feaa785e23b5810e94d))
+
 ## [1.0.0](https://github.com/great-magician-01/callable/compare/v0.10.0...v1.0.0) (2026-08-30)
 
 
