@@ -24,7 +24,7 @@
 - **Agent loop**：模型 → 工具执行 → 模型 → … 自动循环直到最终回答；支持审批钩子（放行/否决/改参）、并行工具执行、max turns 保护
 - **工具调用**：参数 struct 反射生成 JSON Schema（`invopop/jsonschema`），handler 即执行体；工具错误自动回传给模型而不是中断循环
 - **联网搜索**：优先使用 provider 内置的服务端搜索（Kimi、GLM/Z.AI、Qwen、Anthropic、OpenAI Responses，按 BaseURL 自动嗅探），无内置时可用 Tavily 回退工具（`WithTavilyAPIKey`）；`WithWebSearch` 显式开关
-- **多轮对话**：内置 `Session` 维护历史，thinking 块 / 工具轨迹完整保留并正确回传（Anthropic signature、Responses reasoning item、DeepSeek/GLM reasoning_content）
+- **多轮对话**：内置 `Session` 维护历史，thinking 块 / 工具轨迹完整保留并正确回传（Anthropic signature、Responses reasoning item、DeepSeek/GLM reasoning_content）；同一会话可中途切换模型（`WithSessionModel` / `Session.SetModel`，跨 provider 亦可），历史由统一消息模型自动重映射
 - **前向兼容**：响应中未识别的字段与内容块一律按原始 JSON 保留（`Response.Extra` / `Message.Extra` / `Usage.Extra` / `RawPart`），网关自定义字段、厂商新增块类型不丢失，未知块发回同家 provider 时原样回放
 - **上下文管理**：Session 跟踪上下文窗口占用（`Usage.ContextTokens` 按 provider 归一化），支持阈值触发自动压缩（`WithAutoCompact`）与手动 `Compact` 压缩历史
 - **会话 ID 与持久化**：每个会话/运行自动生成 ID（`sess-` / `run-` 前缀），出现在所有流式事件与 `AgentResult` 上；`Session.Snapshot` / `Restore` 一行完成会话持久化与恢复；Session 并发安全

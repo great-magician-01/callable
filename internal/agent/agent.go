@@ -222,11 +222,13 @@ func (a *Agent) Run(ctx context.Context, messages ...model.Message) (*model.Agen
 // and carries the partial trajectory; the error matches the context error
 // (errors.Is(err, context.Canceled) / context.DeadlineExceeded).
 func (a *Agent) RunStream(ctx context.Context, onEvent model.EventSink, messages ...model.Message) (*model.AgentResult, error) {
-	return a.run(ctx, newID("run"), onEvent, messages...)
+	return a.run(ctx, newID("run"), onEvent, "", messages...)
 }
 
-// run is RunStream with an explicit conversation ID (sessions pass theirs).
-func (a *Agent) run(ctx context.Context, conversationID string, onEvent model.EventSink, messages ...model.Message) (*model.AgentResult, error) {
+// run is RunStream with an explicit conversation ID (sessions pass theirs)
+// and a per-run model override (sessions pass theirs; empty uses the client's
+// default model).
+func (a *Agent) run(ctx context.Context, conversationID string, onEvent model.EventSink, modelOverride string, messages ...model.Message) (*model.AgentResult, error) {
 	result := &model.AgentResult{ConversationID: conversationID, Messages: append([]model.Message{}, messages...)}
 	if len(messages) == 0 {
 		return result, fmt.Errorf("callable: agent run requires at least one input message")
@@ -256,6 +258,9 @@ func (a *Agent) run(ctx context.Context, conversationID string, onEvent model.Ev
 		emit(onEvent, model.TurnStartEvent{Turn: turn})
 
 		req := model.NewRequest(conv...).WithTools(a.tools.list()...)
+		if modelOverride != "" {
+			req.Model = modelOverride
+		}
 		if a.thinking != nil {
 			req.Thinking = a.thinking
 		}
@@ -453,22 +458,24 @@ func emit(onEvent model.EventSink, ev model.Event) {
 // of its asks, which distinguishes its events from those of other sessions or
 // sub-agent runs sharing the same sink.
 //
-// Session is safe for concurrent use: Ask/AskStream/Compact are serialized
-// (a second Ask waits for the in-flight one), and the read methods (ID,
-// History, ContextUsage, ...) never block on an in-flight Ask.
+// Session is safe for concurrent use: Ask/AskStream/Compact/SetModel are
+// serialized (a second Ask waits for the in-flight one), and the read methods
+// (ID, History, ContextUsage, ...) never block on an in-flight Ask.
 //
 // Two caveats: an event sink must not re-enter the session (calling
-// Ask/AskStream/Compact from inside a callback deadlocks), and the mutating
-// methods (SetHistory, Restore, Reset) must not race an in-flight Ask — the
-// Ask commits its own history when it completes, overwriting the mutation.
+// Ask/AskStream/Compact/SetModel from inside a callback deadlocks), and the
+// mutating methods (SetHistory, Restore, Reset) must not race an in-flight
+// Ask — the Ask commits its own history when it completes, overwriting the
+// mutation.
 type Session struct {
 	agent *Agent
 	id    string
 
-	askMu sync.Mutex   // serializes Ask/AskStream/Compact
-	mu    sync.RWMutex // guards history and contextUsage
+	askMu sync.Mutex   // serializes Ask/AskStream/Compact/SetModel
+	mu    sync.RWMutex // guards history, model and contextUsage
 
 	history []model.Message
+	model   string // per-session model override; "" = the client's default model
 
 	contextWindow        int
 	autoCompact          bool
@@ -477,7 +484,8 @@ type Session struct {
 }
 
 // Session creates a new conversation session, configured by opts (see
-// WithContextWindow, WithAutoCompact, WithAutoCompactThreshold).
+// WithSessionModel, WithContextWindow, WithAutoCompact,
+// WithAutoCompactThreshold).
 func (a *Agent) Session(opts ...SessionOption) *Session {
 	s := &Session{
 		agent:                a,
@@ -516,10 +524,11 @@ func (s *Session) ask(ctx context.Context, onEvent model.EventSink, messages []m
 
 	s.mu.RLock()
 	id := s.id
+	modelOverride := s.model
 	input := append(append([]model.Message{}, s.history...), messages...)
 	s.mu.RUnlock()
 
-	result, err := s.agent.run(ctx, id, onEvent, input...)
+	result, err := s.agent.run(ctx, id, onEvent, modelOverride, input...)
 	// Only successful runs extend the history: an aborted run may end with a
 	// dangling assistant tool-call message, which providers would reject on
 	// replay.
@@ -592,6 +601,34 @@ func (s *Session) Reset() {
 	defer s.mu.Unlock()
 	s.history = nil
 	s.contextUsage = model.Usage{}
+}
+
+// Model returns the session's model override ("" means the client's default
+// model applies).
+func (s *Session) Model() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.model
+}
+
+// SetModel switches the model the session runs on: every subsequent
+// Ask/AskStream/Compact call goes to the given model instead of the client's
+// default. Pass "" to revert to the client default. Switching
+// mid-conversation is safe — the history is the unified message model, which
+// each provider adapter re-maps on replay — but note that replayed thinking
+// blocks are model-specific: a history produced with thinking enabled should
+// have its ThinkingParts stripped (via SetHistory) before continuing on a
+// different model or provider.
+//
+// SetModel serializes with Ask/AskStream/Compact: it blocks until an
+// in-flight ask completes and applies from the next ask onward, so like them
+// it must not be called from inside an event sink.
+func (s *Session) SetModel(model string) {
+	s.askMu.Lock()
+	defer s.askMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.model = model
 }
 
 // sessionSnapshot is the persisted form of a Session's state.

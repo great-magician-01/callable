@@ -50,6 +50,15 @@ func WithAutoCompactThreshold(ratio float64) SessionOption {
 	}
 }
 
+// WithSessionModel pins the model the session runs on, overriding the
+// client's default model for every ask and for compaction. Pass "" to revert
+// to the client default. The override can be changed between asks at runtime
+// with Session.SetModel. Sub-agent delegation is unaffected: sub-agents carry
+// their own model configuration (WithSubAgentModel).
+func WithSessionModel(model string) SessionOption {
+	return func(s *Session) { s.model = model }
+}
+
 // compactInstruction asks the model to summarize a rendered transcript.
 const compactInstruction = `Summarize the conversation transcript above so it can be continued without the full history. ` +
 	`Preserve: the user's goals and requirements, key decisions, important facts and code changes, ` +
@@ -59,7 +68,8 @@ const compactInstruction = `Summarize the conversation transcript above so it ca
 // replaced with.
 const compactedPrefix = "[Conversation compacted] Summary of the earlier conversation:\n\n"
 
-// Compact summarizes the conversation history with the agent's model and
+// Compact summarizes the conversation history with the session's model (the
+// client's default model, or the WithSessionModel/SetModel override) and
 // replaces the history with the summary, freeing context for subsequent
 // turns. It returns the summary. Compact is a no-op on an empty history. On
 // error the history is left untouched.
@@ -77,11 +87,15 @@ func (s *Session) Compact(ctx context.Context) (string, error) {
 func (s *Session) compact(ctx context.Context) (string, error) {
 	s.mu.RLock()
 	transcript := renderTranscript(s.history)
+	modelOverride := s.model
 	s.mu.RUnlock()
 	if transcript == "" {
 		return "", nil
 	}
 	req := model.NewRequest(model.User(transcript + "\n\n" + compactInstruction))
+	if modelOverride != "" {
+		req.Model = modelOverride
+	}
 	resp, err := s.agent.client.Stream(ctx, req, nil)
 	if err != nil {
 		return "", fmt.Errorf("callable: compact: %w", err)

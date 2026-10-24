@@ -626,7 +626,7 @@ func Deny(reason string) ToolDecision { return agent.Deny(reason) }
 // ReplaceArgs approves the tool call with rewritten JSON arguments.
 func ReplaceArgs(argsJSON string) ToolDecision { return agent.ReplaceArgs(argsJSON) }
 
-// ── Session (context window & compaction) ───────────────────────────────────
+// ── Session (model switching, context window & compaction) ──────────────────
 
 type (
 	// SessionOption configures a Session.
@@ -656,3 +656,9 @@ func WithAutoCompact(enabled bool) SessionOption { return agent.WithAutoCompact(
 func WithAutoCompactThreshold(ratio float64) SessionOption {
 	return agent.WithAutoCompactThreshold(ratio)
 }
+
+// WithSessionModel pins the model the session runs on, overriding the
+// client's default model for every ask and for compaction. Pass "" to revert.
+// Sub-agent delegation is unaffected: sub-agents carry their own model
+// configuration (WithSubAgentModel). Switch at runtime with Session.SetModel.
+func WithSessionModel(model string) SessionOption { return agent.WithSessionModel(model) }

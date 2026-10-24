@@ -21,6 +21,9 @@ err = sess.Restore(data)     // 从快照恢复
 history := sess.History()       // []callable.Message 的副本
 sess.SetHistory(restored)       // 整体替换历史（如手工构造上下文）
 sess.Reset()                    // 清空历史
+
+sess.Model()                    // 会话的模型覆盖（"" 表示用 client 默认模型）
+sess.SetModel("gpt-5-mini")     // 从下一次 Ask 起切换模型（跨 provider 也行）
 ```
 
 | 方法 | 签名 | 说明 |
@@ -31,6 +34,8 @@ sess.Reset()                    // 清空历史
 | `Session.ID` | `func (s *Session) ID() string` | 会话 ID（`sess-` 前缀），创建时生成、跨 Ask 稳定；`Reset` 不清除，`Restore` 恢复为快照中的 id。该会话的所有事件与 `AgentResult` 都携带它 |
 | `Session.History` | `func (s *Session) History() []Message` | 返回当前对话历史的**副本**（不含 system prompt），修改返回值不影响会话 |
 | `Session.SetHistory` | `func (s *Session) SetHistory(messages []Message)` | 整体替换历史（内部拷贝入参），用于恢复持久化的会话或手工构造上下文 |
+| `Session.Model` | `func (s *Session) Model() string` | 会话的模型覆盖；`""` 表示使用 client 的默认模型 |
+| `Session.SetModel` | `func (s *Session) SetModel(model string)` | 从下一次 Ask/AskStream/Compact 起把会话切到指定模型；传 `""` 恢复 client 默认。与 Ask 串行化：会等进行中的 Ask 结束后生效；不要在事件回调里调用 |
 | `Session.Snapshot` | `func (s *Session) Snapshot() ([]byte, error)` | 把会话状态（id + 历史 + 上下文用量）序列化为 JSON，用于持久化。配置项（context window、auto-compact）不在快照里 |
 | `Session.Restore` | `func (s *Session) Restore(data []byte) error` | 从 `Snapshot` 产出的快照恢复（替换 id、历史与上下文用量）；无 id 的快照报错。恢复后需重新用 `SessionOption` 设置配置项 |
 | `Session.Reset` | `func (s *Session) Reset()` | 清空历史与上下文用量，会话回到刚创建时的状态 |
@@ -86,6 +91,32 @@ fmt.Println("历史消息数:", len(session.History()))
 ```
 
 （完整可运行版本见 `examples/thinking/main.go`。）
+
+## 中途切换模型
+
+同一个会话可以中途换模型：先用便宜的模型跑，遇到难题切到更强的模型，甚至把对话整个交给另一家 provider。历史由统一消息模型承载，各 provider adapter 在发送时自动重映射，不需要对历史做任何处理。
+
+创建会话时用 `WithSessionModel` 指定（覆盖 client 的默认模型），运行中用 `Session.SetModel` 随时切换，从下一次 Ask 起生效；传 `""` 恢复 client 默认，`Session.Model()` 读取当前覆盖值：
+
+```go
+sess := agent.Session() // 先用 client 默认模型
+_, err := sess.Ask(ctx, callable.User("先用默认模型聊聊"))
+
+sess.SetModel("deepseek-chat") // 同一个对话，切换模型
+_, err = sess.Ask(ctx, callable.User("接下来换你来做"))
+
+// 也可以在创建时就固定：
+sess2 := agent.Session(callable.WithSessionModel("claude-sonnet-5"))
+```
+
+细节与限制：
+
+- **切换是安全的**：历史与 provider 无关，client 配好目标 provider 后，切换到任意模型都可以。
+- **注意 thinking 块**：开启思考模式产生的 ThinkingPart 带有模型相关的数据（如 Anthropic 的 `signature`），切换到不同模型/provider 前，建议用 `SetHistory` 把历史中的 thinking 部分过滤掉。
+- **压缩跟随会话模型**：`Compact` / 自动压缩的总结调用同样使用会话的模型覆盖（未设置时用 client 默认）。
+- **子代理不受影响**：委托出去的子代理有自己的模型配置（`WithSubAgentModel`），不会继承会话的模型覆盖。
+- **不属于快照**：模型覆盖是运行期配置，与 context window 一样不进入 `Snapshot`，需要时在 `Restore` 之后重新设置。
+- **并发语义**：`SetModel` 与 `Ask` / `AskStream` / `Compact` 串行化——它会等进行中的 Ask 结束再返回，然后对其后的所有调用生效；因此不要在事件回调里调用它。
 
 ## 工作原理
 
@@ -267,7 +298,7 @@ summary, err := sess.Compact(ctx) // 空历史是 no-op；失败时历史不变
 
 ### 压缩做了什么
 
-压缩把当前历史渲染成纯文本 transcript（thinking 块与图片以占位符表示），用 agent 的 client（同一 model，不带工具与 thinking 配置）调用一次模型生成摘要，然后把整段历史替换为一条 user 消息。这次总结调用走流式请求（长 transcript 的总结耗时较长，流式可以避免网关超时），流式增量被丢弃，对外行为不变：
+压缩把当前历史渲染成纯文本 transcript（thinking 块与图片以占位符表示），用 agent 的 client（会话模型——见「中途切换模型」，未设置覆盖时为 client 默认；不带工具与 thinking 配置）调用一次模型生成摘要，然后把整段历史替换为一条 user 消息。这次总结调用走流式请求（长 transcript 的总结耗时较长，流式可以避免网关超时），流式增量被丢弃，对外行为不变：
 
 ```
 [Conversation compacted] Summary of the earlier conversation:
@@ -279,10 +310,10 @@ summary, err := sess.Compact(ctx) // 空历史是 no-op；失败时历史不变
 
 ## 注意事项
 
-- **并发安全**：`Session` 可以在多个 goroutine 间共享——`Ask` / `AskStream` / `Compact` 会被串行化（进行中的 Ask 未结束时，第二个 Ask 排队等待），读取方法（`ID` / `History` / `ContextUsage` / `ContextFillRatio` / `Snapshot`）不会被进行中的 Ask 阻塞。需要真正并行的对话时，仍建议每个 goroutine 用独立会话。
+- **并发安全**：`Session` 可以在多个 goroutine 间共享——`Ask` / `AskStream` / `Compact` / `SetModel` 会被串行化（进行中的 Ask 未结束时，第二个 Ask 排队等待），读取方法（`ID` / `History` / `ContextUsage` / `ContextFillRatio` / `Model` / `Snapshot`）不会被进行中的 Ask 阻塞。需要真正并行的对话时，仍建议每个 goroutine 用独立会话。
 - **空消息**：`Ask(ctx)`（不传消息）会在历史为空时报错 `agent run requires at least one input message`；历史非空时则相当于"让模型基于现有历史再说点什么"。
 - **History 是副本**：`History()` 返回拷贝，追加消息请通过 `Ask` 或 `SetHistory`，直接改返回值无效。
-- **一个 agent 多个会话**：`agent.Session()` 可多次调用，各会话历史互不影响；但所有会话共享 agent 的配置（工具、system prompt、思考模式）。
+- **一个 agent 多个会话**：`agent.Session()` 可多次调用，各会话历史互不影响；但所有会话共享 agent 的配置（工具、system prompt、思考模式）——模型除外，每个会话可用 `WithSessionModel` / `SetModel` 单独指定。
 - **历史增长**：历史只增不减（除非 Reset / SetHistory / Compact），长会话要注意 token 成本——可以开启 `WithAutoCompact` 让会话自动压缩，或自行用 `SetHistory` 截断（截断时同样要保证工具调用配对完整）。
 - **system prompt 不入历史**：`History()` / `SetHistory()` 只管理 user / assistant / tool 消息；system prompt 由 agent 配置（`WithSystemPrompt`、skill 索引等）在每次请求时注入，不参与持久化。
 

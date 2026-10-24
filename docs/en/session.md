@@ -21,6 +21,9 @@ err = sess.Restore(data)     // restore from a snapshot
 history := sess.History()       // a copy of []callable.Message
 sess.SetHistory(restored)       // replace history wholesale (e.g. seed context manually)
 sess.Reset()                    // clear history
+
+sess.Model()                    // the session's model override ("" = the client's default)
+sess.SetModel("gpt-5-mini")     // switch models from the next Ask on (across providers too)
 ```
 
 | Method | Signature | Description |
@@ -31,6 +34,8 @@ sess.Reset()                    // clear history
 | `Session.ID` | `func (s *Session) ID() string` | The conversation ID (`sess-` prefix), generated at creation and stable across asks; `Reset` keeps it, `Restore` replaces it with the snapshotted id. Every event and `AgentResult` of this session carries it |
 | `Session.History` | `func (s *Session) History() []Message` | Return a **copy** of the conversation history (system prompt excluded); mutating the returned slice has no effect on the session |
 | `Session.SetHistory` | `func (s *Session) SetHistory(messages []Message)` | Replace the history wholesale (the argument is copied), e.g. to restore a persisted conversation or seed context manually |
+| `Session.Model` | `func (s *Session) Model() string` | The session's model override; `""` means the client's default model applies |
+| `Session.SetModel` | `func (s *Session) SetModel(model string)` | Switch the session's model from the next Ask/AskStream/Compact on; pass `""` to revert to the client default. Serialized with Ask: it waits for an in-flight ask to complete; do not call it from inside an event sink |
 | `Session.Snapshot` | `func (s *Session) Snapshot() ([]byte, error)` | Serialize the session state (id + history + context usage) as JSON for persistence. Configuration (context window, auto-compact) is not part of the snapshot |
 | `Session.Restore` | `func (s *Session) Restore(data []byte) error` | Restore a snapshot produced by `Snapshot` (replacing id, history and context usage); a snapshot without an id is an error. Re-apply configuration via `SessionOption`s after restoring |
 | `Session.Reset` | `func (s *Session) Reset()` | Clear the history and the tracked context usage, returning the session to its freshly-created state |
@@ -86,6 +91,32 @@ fmt.Println("history length:", len(session.History()))
 ```
 
 (A full runnable version lives in `examples/thinking/main.go`.)
+
+## Switching models mid-conversation
+
+The same conversation can change models as it goes: start on a cheap model and escalate to a stronger one for hard questions, or hand the conversation to a different provider entirely. The history lives in the unified message model, and each provider adapter re-maps it on send, so no history surgery is needed.
+
+Pin the model at creation with `WithSessionModel` (overriding the client's default), or switch at runtime with `Session.SetModel` — it applies from the next Ask onward. Pass `""` to revert to the client default; `Session.Model()` reads the current override:
+
+```go
+sess := agent.Session() // runs on the client's default model
+_, err := sess.Ask(ctx, callable.User("Let's start with the default model"))
+
+sess.SetModel("deepseek-chat") // same conversation, different model
+_, err = sess.Ask(ctx, callable.User("Now you take over"))
+
+// Or pin it at creation:
+sess2 := agent.Session(callable.WithSessionModel("claude-sonnet-5"))
+```
+
+Details and caveats:
+
+- **Switching is safe**: the history is provider-agnostic. Any model of any provider works, as long as the agent's client is configured for it.
+- **Mind the thinking blocks**: ThinkingParts produced with thinking enabled carry model-specific data (e.g. Anthropic's `signature`). Before continuing on a different model/provider, strip them from the history via `SetHistory`.
+- **Compaction follows the session model**: the `Compact` / auto-compact summarization call uses the session's model override too (the client default when unset).
+- **Sub-agents are unaffected**: delegated sub-agents carry their own model configuration (`WithSubAgentModel`) and do not inherit the session's override.
+- **Not part of the snapshot**: the model override is runtime configuration — like the context window it is excluded from `Snapshot`; re-apply it after `Restore` if needed.
+- **Concurrency**: `SetModel` is serialized with `Ask` / `AskStream` / `Compact` — it waits for an in-flight ask to complete, then applies to everything after; do not call it from inside an event sink.
 
 ## How it works
 
@@ -267,7 +298,7 @@ summary, err := sess.Compact(ctx) // no-op on empty history; history untouched o
 
 ### What compaction does
 
-Compaction renders the current history as a plain-text transcript (thinking blocks and images become placeholders), asks the model for a summary using the agent's client (same model, without tools or thinking config), then replaces the whole history with a single user message. The summarization call is streamed (summarizing a long transcript can take a while, and streaming keeps gateways from timing out); the deltas are discarded and the external behavior is unchanged:
+Compaction renders the current history as a plain-text transcript (thinking blocks and images become placeholders), asks the model for a summary using the agent's client (the session's model — see [Switching models mid-conversation](#switching-models-mid-conversation) — without tools or thinking config), then replaces the whole history with a single user message. The summarization call is streamed (summarizing a long transcript can take a while, and streaming keeps gateways from timing out); the deltas are discarded and the external behavior is unchanged:
 
 ```
 [Conversation compacted] Summary of the earlier conversation:
@@ -279,10 +310,10 @@ Compaction is therefore an irreversible rewrite of the history: thinking signatu
 
 ## Caveats
 
-- **Concurrency-safe**: a `Session` can be shared across goroutines — `Ask` / `AskStream` / `Compact` are serialized (a second Ask waits for the in-flight one), and the read methods (`ID` / `History` / `ContextUsage` / `ContextFillRatio` / `Snapshot`) never block on an in-flight Ask. For truly parallel conversations, still give each goroutine its own session.
+- **Concurrency-safe**: a `Session` can be shared across goroutines — `Ask` / `AskStream` / `Compact` / `SetModel` are serialized (a second Ask waits for the in-flight one), and the read methods (`ID` / `History` / `ContextUsage` / `ContextFillRatio` / `Model` / `Snapshot`) never block on an in-flight Ask. For truly parallel conversations, still give each goroutine its own session.
 - **Empty input**: `Ask(ctx)` with no messages fails with `agent run requires at least one input message` when the history is empty; with a non-empty history it effectively asks the model to continue from the existing context.
 - **History is a copy**: `History()` returns a copy. To append messages, use `Ask` or `SetHistory`; mutating the returned slice does nothing.
-- **Many sessions per agent**: `agent.Session()` can be called repeatedly and the sessions' histories are independent, but they all share the agent's configuration (tools, system prompt, thinking mode).
+- **Many sessions per agent**: `agent.Session()` can be called repeatedly and the sessions' histories are independent, but they all share the agent's configuration (tools, system prompt, thinking mode) — except the model, which each session can override via `WithSessionModel` / `Session.SetModel`.
 - **History only grows**: except via `Reset` / `SetHistory` / `Compact`, history accumulates. Long conversations cost tokens — enable `WithAutoCompact` for automatic compaction, or truncate manually with `SetHistory` (keeping tool-call pairing intact, as above).
 - **System prompt is not part of the history**: `History()` / `SetHistory()` only manage user / assistant / tool messages. The system prompt comes from the agent configuration (`WithSystemPrompt`, skill indexes, etc.) and is injected per request — it is not persisted.
 

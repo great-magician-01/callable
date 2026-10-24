@@ -295,3 +295,27 @@ func TestRenderTranscript(t *testing.T) {
 		}
 	}
 }
+
+// TestSessionCompactUsesSessionModel verifies the compaction call goes to the
+// session's model override rather than the client default.
+func TestSessionCompactUsesSessionModel(t *testing.T) {
+	var bodies []string
+	sess := chatSessionMixedFixture(t, nil,
+		[]string{ChatSSEUsage("summary of the chat", 5)}, &bodies,
+		WithSessionModel("summarizer"))
+
+	sess.SetHistory([]Message{User("hello"), Assistant("hi there")})
+	summary, err := sess.Compact(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary != "summary of the chat" {
+		t.Errorf("summary = %q", summary)
+	}
+	if len(bodies) != 1 {
+		t.Fatalf("requests = %d, want 1", len(bodies))
+	}
+	if !strings.Contains(bodies[0], `"model":"summarizer"`) {
+		t.Errorf("compaction request missing the session model override:\n%s", bodies[0])
+	}
+}

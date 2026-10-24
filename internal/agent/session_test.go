@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -373,4 +374,94 @@ func TestSessionRestoreOverwritesAndContinues(t *testing.T) {
 	if got := len(sess.History()); got != 4 {
 		t.Errorf("history len = %d, want 4", got)
 	}
+}
+
+// TestSessionModelSwitch verifies the per-session model override: it wins
+// over the client default, SetModel applies from the next ask, and
+// SetModel("") reverts to the client default.
+func TestSessionModelSwitch(t *testing.T) {
+	var bodies []string
+	sess := chatSessionFixture(t,
+		[]string{ChatJSONUsage("one", 10), ChatJSONUsage("two", 20), ChatJSONUsage("three", 30)},
+		&bodies)
+
+	if got := sess.Model(); got != "" {
+		t.Errorf("initial model override = %q, want empty", got)
+	}
+
+	// The first ask runs on the client's default model "m".
+	if _, err := sess.Ask(context.Background(), User("hello")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Switch: the second ask carries the override.
+	sess.SetModel("gpt-5-mini")
+	if got := sess.Model(); got != "gpt-5-mini" {
+		t.Errorf("model override = %q, want gpt-5-mini", got)
+	}
+	if _, err := sess.Ask(context.Background(), User("again")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Revert: the third ask goes back to the client default.
+	sess.SetModel("")
+	if got := sess.Model(); got != "" {
+		t.Errorf("model override after revert = %q, want empty", got)
+	}
+	if _, err := sess.Ask(context.Background(), User("more")); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(bodies) != 3 {
+		t.Fatalf("requests = %d, want 3", len(bodies))
+	}
+	for i, want := range []string{`"model":"m"`, `"model":"gpt-5-mini"`, `"model":"m"`} {
+		if !strings.Contains(bodies[i], want) {
+			t.Errorf("request %d missing %s:\n%s", i, want, bodies[i])
+		}
+	}
+}
+
+// TestSessionModelOption verifies WithSessionModel pins the model from the
+// first ask on.
+func TestSessionModelOption(t *testing.T) {
+	var bodies []string
+	server := NewMockJSONServer(t, []string{ChatJSONUsage("hi", 10)}, &bodies)
+	c := client.NewClient(provider.NewOpenAIProvider("k", server.URL), client.WithModel("m"))
+	sess := NewAgent(c).Session(WithSessionModel("strong-model"))
+
+	if got := sess.Model(); got != "strong-model" {
+		t.Errorf("model override = %q, want strong-model", got)
+	}
+	if _, err := sess.Ask(context.Background(), User("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 1 {
+		t.Fatalf("requests = %d, want 1", len(bodies))
+	}
+	if !strings.Contains(bodies[0], `"model":"strong-model"`) {
+		t.Errorf("request missing the session model override:\n%s", bodies[0])
+	}
+}
+
+// TestSessionConcurrentSetModel exercises the SetModel/Ask race surface;
+// meaningful under -race (CI).
+func TestSessionConcurrentSetModel(t *testing.T) {
+	sess := chatSessionFixture(t, []string{ChatJSONUsage("a", 10), ChatJSONUsage("b", 20)}, nil)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if _, err := sess.Ask(context.Background(), User("hello")); err != nil {
+				t.Error(err)
+			}
+		}()
+		go func(i int) {
+			defer wg.Done()
+			sess.SetModel("model-" + strconv.Itoa(i))
+		}(i)
+	}
+	wg.Wait()
 }
